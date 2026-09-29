@@ -1,0 +1,4 @@
+# PDF subidos por los usuarios (se conserva la carpeta y su .htaccess)
+uploads/gastos/*
+!uploads/gastos/.gitkeep
+!uploads/gastos/.htaccess

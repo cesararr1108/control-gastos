@@ -1,0 +1,145 @@
+# Flujos del control de gastos
+
+Este documento describe cómo avanza una solicitud de gasto, quién participa en cada paso y
+cómo se configuran los flujos por oficina. Los flujos que aparecen aquí son los
+**predeterminados** que crea `database/gastos.sql`; cada uno se puede cambiar desde la
+pantalla **Flujos** sin tocar código.
+
+## 1. Conceptos
+
+| Concepto | Qué es |
+|---|---|
+| **Tipo de flujo** | `COTIZACION`, `ANTICIPO` o `FACTURA`. Cada tipo tiene sus propios pasos y son independientes entre sí. |
+| **Paso** | Una acción con un responsable y una condición. Se ejecuta en orden. |
+| **Acción** | Qué hace el paso (subir cotizaciones, aprobar, contabilizar…). Define el formulario que se muestra. |
+| **Responsable** | Quién ejecuta el paso: **el solicitante**, **un rol** (`T_ROLES`) o **un usuario específico**. |
+| **Condición** | Cuándo aplica el paso (siempre, solo si hay anticipo, solo si el anticipo es por viáticos…). Si no se cumple, el paso se **omite**. |
+| **Alcance** | El flujo aplica a todas las oficinas, a una organización o a una oficina. Gana el más específico: **oficina > organización > general**. |
+
+### Roles que participan
+
+| Quién | Qué hace |
+|---|---|
+| **Solicitante** (cualquier usuario, departamento o rol) | Crea la solicitud, sube cotizaciones, define el anticipo y monta el preliminar. |
+| **Gerencia administrativa (GA)** | Autoriza cotizaciones y aprueba anticipos y preliminares. |
+| **Contabilidad** | Contabiliza: monta el número de contabilización y, si aplica, la causación de compensación (consolidación anticipo vs. factura legalizada). |
+| **Tesorería** | Paga: monta el número de comprobante ZP, la fecha de pago y el comprobante en PDF. Cierra la solicitud. |
+
+> Los roles concretos (GA, Contabilidad, Tesorería) se asignan por oficina en **Flujos**.
+> Al ejecutar `gastos.sql` se intentan enlazar por el título del rol (`GERENCIA…ADMIN`, `CONTAB`, `TESOR`).
+
+### Estados
+
+- **Solicitud:** `EN_CURSO` → `FINALIZADA` | `RECHAZADA` | `CANCELADA`.
+- **Paso:** `PENDIENTE` → `ACTUAL` → `COMPLETADO` | `RECHAZADO`, o `OMITIDO` si su condición no se cumple.
+- Un **rechazo** cierra la solicitud (queda `RECHAZADA` con el comentario del que rechazó).
+- El **solicitante** puede cancelar mientras la solicitud siga en curso.
+
+## 2. Flujo de COTIZACIÓN
+
+```mermaid
+flowchart TD
+    A["1. Solicitante<br/>Sube 3 cotizaciones PDF<br/>+ proceso + ¿requiere soporte de pago?"] --> B
+    B{"2. GA<br/>Autoriza cotización<br/>elige 1 de 3 + comentario"}
+    B -- Rechaza --> X([Rechazada])
+    B -- Autoriza --> C
+    C["3. Solicitante<br/>¿Necesita anticipo?<br/>+ datos del tercero"]
+    C -- Sí --> D{"4. GA<br/>Aprueba anticipo"}
+    C -- "No (ya tiene preliminar)" --> E
+    D -- Rechaza --> X
+    D -- Aprueba --> E
+    E["5. Solicitante<br/>Monta preliminar<br/>(nº, valor, tercero, soporte de pago si aplica)"] --> F
+    F{"6. GA<br/>Aprueba preliminar"}
+    F -- Rechaza --> X
+    F -- Aprueba --> G
+    G["7. Contabilidad<br/>Contabiliza<br/>nº contabilización / compensación"] --> H
+    H["8. Tesorería<br/>Paga<br/>nº comprobante ZP + PDF"] --> Z([Finalizada])
+```
+
+Detalles:
+
+- **Paso 1:** las tres cotizaciones son obligatorias y solo se aceptan **PDF** (extensión, firma `%PDF` y tipo MIME se validan). El proveedor y el valor de cada cotización son opcionales pero ayudan a GA a decidir.
+- **Paso 3:** siempre se registran los datos del tercero (NIT, razón social, celular, correo, cargo, centro de costos), que se pueden traer de `T_TERCEROS`. Si pide anticipo, el tipo es **por cotización** y debe indicar el valor.
+- **Paso 4:** solo si hay anticipo (`ANTICIPO_SI`); si no, se omite.
+- **Paso 5:** los datos del tercero llegan prellenados con los del paso 3 (son los mismos). Si en el paso 1 se marcó *requiere soporte de pago*, el PDF del soporte es obligatorio.
+
+## 3. Flujo de ANTICIPO
+
+Hay dos variantes, según el tipo de anticipo que elija el solicitante en el paso 1.
+
+```mermaid
+flowchart TD
+    A["1. Solicitante<br/>Solicita anticipo + datos del tercero<br/>tipo: FACTURA o VIÁTICOS"] --> B
+    B{"2. GA<br/>Aprueba anticipo"}
+    B -- Rechaza --> X([Rechazada])
+    B -- "Aprueba · tipo FACTURA" --> C
+    B -- "Aprueba · tipo VIÁTICOS" --> E
+    C["3. Solicitante<br/>Monta preliminar"] --> D
+    D{"4. GA<br/>Aprueba preliminar"}
+    D -- Rechaza --> X
+    D -- Aprueba --> E
+    E["5. Contabilidad<br/>Contabiliza"] --> F
+    F["6. Tesorería<br/>Paga + comprobante ZP"] --> Z([Finalizada])
+```
+
+- **Por factura:** el solicitante indica el **valor** del anticipo. Después debe montar el preliminar (pasos 3 y 4, condición `ANTICIPO_FACTURA`).
+- **Por viáticos:** en lugar de un valor, diligencia el **formulario de gastos de viaje** (destino, motivo, fechas y líneas de concepto/cantidad/valor unitario). El total se calcula en el servidor. No lleva preliminar (los pasos 3 y 4 se omiten).
+
+## 4. Flujo de FACTURA
+
+```mermaid
+flowchart TD
+    A["1. Solicitante<br/>Monta el preliminar de la factura<br/>(nº, valor, tercero, soporte)"] --> B
+    B{"2. GA<br/>Aprueba preliminar"}
+    B -- Rechaza --> X([Rechazada])
+    B -- Aprueba --> C
+    C["3. Contabilidad<br/>Contabiliza"] --> D
+    D["4. Tesorería<br/>Paga + comprobante ZP"] --> Z([Finalizada])
+```
+
+## 5. Armar o cambiar un flujo por oficina
+
+En **Flujos** (solo roles administradores) se puede:
+
+1. Crear un flujo nuevo o editar uno existente.
+2. Elegir el **tipo** y el **alcance** (todas las oficinas, una organización o una oficina).
+3. Agregar, quitar y **reordenar** pasos.
+4. Por paso: elegir la **acción**, ponerle nombre, decidir **quién lo ejecuta** (solicitante, rol o usuario) y **cuándo aplica**.
+
+Reglas:
+
+- Un solo flujo **activo** por combinación (tipo, organización, oficina).
+- El primer paso debe ser del solicitante (es quien arranca la solicitud).
+- Una solicitud **no se puede crear** si su flujo tiene pasos de rol/usuario sin responsable.
+- Al crear una solicitud, los pasos se **copian** (`T_GAS_SOLICITUD_PASOS`): cambiar un flujo después **no altera** las solicitudes que ya están en curso.
+
+### Acciones disponibles
+
+| Acción | Ejecuta (sugerido) | Qué registra |
+|---|---|---|
+| `SUBIR_COTIZACIONES` | Solicitante | 3 PDF, proceso, ¿requiere soporte de pago? |
+| `AUTORIZAR_COTIZACION` | Rol | Cotización elegida + comentario, o rechazo |
+| `DECISION_ANTICIPO` | Solicitante | ¿Anticipo? (valor) + datos del tercero |
+| `SOLICITAR_ANTICIPO` | Solicitante | Tipo (factura/viáticos), valor o formulario de viaje, tercero |
+| `MONTAR_PRELIMINAR` | Solicitante | Nº de preliminar, valor, tercero, soporte de pago |
+| `APROBAR` | Rol | Aprobar o rechazar con comentario (sirve para anticipos y preliminares) |
+| `CONTABILIZAR` | Rol | Nº de contabilización, causación de compensación |
+| `PAGAR` | Rol | Nº comprobante ZP, fecha de pago, comprobante PDF |
+
+### Condiciones disponibles
+
+`SIEMPRE`, `ANTICIPO_SI`, `ANTICIPO_NO`, `ANTICIPO_FACTURA`, `ANTICIPO_VIATICOS`, `ANTICIPO_COTIZACION`.
+
+Para agregar una **acción nueva** hay que sumar su entrada en `GasCatalogo::acciones()`, un manejador
+`hNombreAccion()` en `GasMotor` y su formulario en `lib/js/gastos/pasos.js` (`Pasos.FORMS`).
+`php tests/logica.php` verifica que cada acción del catálogo tenga manejador.
+
+## 6. Supuestos que conviene confirmar
+
+- **Formulario de gastos de viaje:** las líneas son *concepto / descripción / cantidad / valor unitario*
+  con los conceptos de `GasCatalogo::conceptosViaticos()`. Ajustar si el formato oficial pide otros campos.
+- **Anticipo en el flujo de cotización:** se asume que, tras aprobar el anticipo, el solicitante monta el
+  preliminar y todo se contabiliza y paga al final (como se describió). Si tesorería debe pagar el
+  anticipo antes, se agrega un paso `PAGAR` con condición `ANTICIPO_SI` desde **Flujos**.
+- **Rechazo:** cierra la solicitud. Si se prefiere "devolver al solicitante para corregir", es un cambio puntual en `GasMotor::ejecutar`.
+- **Soporte de pago:** se exige al montar el preliminar cuando se marcó *requiere soporte* en la cotización.

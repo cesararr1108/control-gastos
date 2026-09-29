@@ -1,0 +1,124 @@
+<?php
+/**
+ * Catalogos fijos del modulo: tipos de flujo, acciones de paso y condiciones.
+ *
+ * Las ACCIONES son el "vocabulario" de pasos: cada una tiene su formulario y su efecto
+ * sobre la solicitud. El administrador arma un flujo eligiendo acciones, su orden,
+ * quien las ejecuta y en que condicion aplican (pantalla Flujos).
+ */
+class GasCatalogo
+{
+    const TIPO_COTIZACION = 'COTIZACION';
+    const TIPO_ANTICIPO   = 'ANTICIPO';
+    const TIPO_FACTURA    = 'FACTURA';
+
+    public static function tipos()
+    {
+        return array(
+            self::TIPO_COTIZACION => array('nombre' => 'Cotización', 'prefijo' => 'COT'),
+            self::TIPO_ANTICIPO   => array('nombre' => 'Anticipo',   'prefijo' => 'ANT'),
+            self::TIPO_FACTURA    => array('nombre' => 'Factura',    'prefijo' => 'FAC'),
+        );
+    }
+
+    /**
+     * Acciones disponibles.
+     *  - actor:  quien la ejecuta por defecto (SOLICITANTE o ROL). Es solo una sugerencia para la UI.
+     *  - tipos:  en que tipos de flujo tiene sentido usarla.
+     *  - decide: true si el ejecutor puede aprobar o rechazar (un rechazo cierra la solicitud).
+     */
+    public static function acciones()
+    {
+        return array(
+            'SUBIR_COTIZACIONES' => array(
+                'nombre' => 'Subir cotizaciones (3 PDF)', 'actor' => 'SOLICITANTE', 'decide' => false,
+                'tipos'  => array(self::TIPO_COTIZACION),
+                'ayuda'  => 'El solicitante sube 3 cotizaciones en PDF e indica el proceso y si requiere soporte de pago.',
+            ),
+            'AUTORIZAR_COTIZACION' => array(
+                'nombre' => 'Autorizar cotización', 'actor' => 'ROL', 'decide' => true,
+                'tipos'  => array(self::TIPO_COTIZACION),
+                'ayuda'  => 'Elige una de las tres cotizaciones y deja un comentario (o rechaza).',
+            ),
+            'DECISION_ANTICIPO' => array(
+                'nombre' => 'Definir anticipo y tercero', 'actor' => 'SOLICITANTE', 'decide' => false,
+                'tipos'  => array(self::TIPO_COTIZACION),
+                'ayuda'  => 'El solicitante indica si necesita anticipo (por cotización) y registra los datos del tercero.',
+            ),
+            'SOLICITAR_ANTICIPO' => array(
+                'nombre' => 'Solicitar anticipo', 'actor' => 'SOLICITANTE', 'decide' => false,
+                'tipos'  => array(self::TIPO_ANTICIPO),
+                'ayuda'  => 'Anticipo por factura (valor) o por viáticos (formulario de gastos de viaje), con datos del tercero.',
+            ),
+            'MONTAR_PRELIMINAR' => array(
+                'nombre' => 'Montar preliminar', 'actor' => 'SOLICITANTE', 'decide' => false,
+                'tipos'  => array(self::TIPO_COTIZACION, self::TIPO_ANTICIPO, self::TIPO_FACTURA),
+                'ayuda'  => 'El solicitante registra el número de preliminar, el valor y, si aplica, el soporte de pago en PDF.',
+            ),
+            'APROBAR' => array(
+                'nombre' => 'Aprobar / rechazar', 'actor' => 'ROL', 'decide' => true,
+                'tipos'  => array(self::TIPO_COTIZACION, self::TIPO_ANTICIPO, self::TIPO_FACTURA),
+                'ayuda'  => 'Aprueba o rechaza con comentario. Úsalo para aprobar anticipos o preliminares.',
+            ),
+            'CONTABILIZAR' => array(
+                'nombre' => 'Contabilizar', 'actor' => 'ROL', 'decide' => false,
+                'tipos'  => array(self::TIPO_COTIZACION, self::TIPO_ANTICIPO, self::TIPO_FACTURA),
+                'ayuda'  => 'Contabilidad monta el número de contabilización y, si aplica, el de causación de compensación.',
+            ),
+            'PAGAR' => array(
+                'nombre' => 'Pagar y montar comprobante', 'actor' => 'ROL', 'decide' => false,
+                'tipos'  => array(self::TIPO_COTIZACION, self::TIPO_ANTICIPO, self::TIPO_FACTURA),
+                'ayuda'  => 'Tesorería registra el número de comprobante ZP y sube el comprobante en PDF. Cierra la solicitud.',
+            ),
+        );
+    }
+
+    /** Condiciones que deciden si un paso aplica. Se evalúan sobre los datos de la solicitud. */
+    public static function condiciones()
+    {
+        return array(
+            'SIEMPRE'           => 'Siempre',
+            'ANTICIPO_SI'       => 'Solo si hay anticipo',
+            'ANTICIPO_NO'       => 'Solo si NO hay anticipo',
+            'ANTICIPO_FACTURA'  => 'Solo si el anticipo es por factura',
+            'ANTICIPO_VIATICOS' => 'Solo si el anticipo es por viáticos',
+            'ANTICIPO_COTIZACION' => 'Solo si el anticipo es por cotización',
+        );
+    }
+
+    /** Evalúa una condición contra la fila de la solicitud. */
+    public static function cumpleCondicion($condicion, $sol)
+    {
+        $hay  = !empty($sol['REQUIERE_ANTICIPO']);
+        $tipo = isset($sol['TIPO_ANTICIPO']) ? $sol['TIPO_ANTICIPO'] : '';
+        switch ($condicion) {
+            case 'ANTICIPO_SI':         return $hay;
+            case 'ANTICIPO_NO':         return !$hay;
+            case 'ANTICIPO_FACTURA':    return $hay && $tipo === 'FACTURA';
+            case 'ANTICIPO_VIATICOS':   return $hay && $tipo === 'VIATICOS';
+            case 'ANTICIPO_COTIZACION': return $hay && $tipo === 'COTIZACION';
+            default:                    return true; // SIEMPRE
+        }
+    }
+
+    public static function responsables()
+    {
+        return array(
+            'SOLICITANTE' => 'El solicitante',
+            'ROL'         => 'Un rol',
+            'USUARIO'     => 'Un usuario específico',
+        );
+    }
+
+    /** Conceptos del formulario de gastos de viaje (ajustar a tu formato oficial). */
+    public static function conceptosViaticos()
+    {
+        return array(
+            'ALIMENTACION' => 'Alimentación',
+            'HOSPEDAJE'    => 'Hospedaje',
+            'TRANSPORTE'   => 'Transporte',
+            'PEAJES'       => 'Peajes / parqueadero',
+            'OTROS'        => 'Otros',
+        );
+    }
+}
