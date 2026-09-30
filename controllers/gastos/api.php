@@ -23,6 +23,17 @@ spl_autoload_register(function ($clase) use ($base) {
     }
 });
 
+// Diagnóstico de instalación: avisa qué carpeta/archivo falta (Linux distingue mayúsculas).
+foreach (array('models/gastos/GasSesion.php', 'models/gastos/GasDb.php', 'models/gastos/GasMotor.php', 'controllers/gastos/GasSolicitudesController.php') as $req) {
+    if (!is_file($base . '/' . $req)) {
+        header('HTTP/1.1 500 Internal Server Error');
+        header('Content-Type: application/json; charset=UTF-8');
+        echo json_encode(array('ok' => false, 'mensaje' => 'Instalación incompleta: falta ' . $base . '/' . $req
+            . '. Copia al servidor las carpetas models/gastos y controllers/gastos completas.'));
+        exit;
+    }
+}
+
 /**
  * Whitelist: 'recurso.accion' => array(clase, método, método HTTP, solo admin).
  * Lo que no esté aquí no se puede invocar.
