@@ -208,19 +208,25 @@ DECLARE @rolCont int = (SELECT TOP 1 ID FROM dbo.T_ROLES WHERE TITULO LIKE '%CON
 DECLARE @rolTes  int = (SELECT TOP 1 ID FROM dbo.T_ROLES WHERE TITULO LIKE '%TESOR%' ORDER BY ID);
 DECLARE @f int;
 
+/* COTIZACION: tras autorizar la cotizacion, el solicitante decide si necesita anticipo (paso 3).
+   - Con anticipo: GA aprueba el anticipo -> preliminar -> GA aprueba preliminar -> contabiliza -> paga.
+   - Con preliminar (sin anticipo): preliminar -> GA aprueba preliminar -> paga -> contabiliza.
+   Los pasos 7-10 existen en los dos ordenes; solo aplica el de la rama elegida (los demas se omiten). */
 IF NOT EXISTS (SELECT 1 FROM dbo.T_GAS_FLUJOS WHERE TIPO='COTIZACION' AND ORGANIZACION_VENTA IS NULL AND NOMBRE='Cotizacion (general)')
 BEGIN
   INSERT dbo.T_GAS_FLUJOS (TIPO, NOMBRE) VALUES ('COTIZACION', 'Cotizacion (general)');
   SET @f = SCOPE_IDENTITY();
   INSERT dbo.T_GAS_FLUJO_PASOS (FLUJO_ID, ORDEN, ACCION, NOMBRE, RESPONSABLE_TIPO, ROL_ID, CONDICION) VALUES
-    (@f, 1, 'SUBIR_COTIZACIONES',   'Subir cotizaciones',                 'SOLICITANTE', NULL,    'SIEMPRE'),
-    (@f, 2, 'AUTORIZAR_COTIZACION', 'Autorizar cotizacion',               'ROL',         @rolGA,  'SIEMPRE'),
-    (@f, 3, 'DECISION_ANTICIPO',    'Definir anticipo y tercero',         'SOLICITANTE', NULL,    'SIEMPRE'),
-    (@f, 4, 'APROBAR',              'Aprobar anticipo',                   'ROL',         @rolGA,  'ANTICIPO_SI'),
-    (@f, 5, 'MONTAR_PRELIMINAR',    'Montar preliminar',                  'SOLICITANTE', NULL,    'SIEMPRE'),
-    (@f, 6, 'APROBAR',              'Aprobar preliminar',                 'ROL',         @rolGA,  'SIEMPRE'),
-    (@f, 7, 'CONTABILIZAR',         'Contabilizar',                       'ROL',         @rolCont,'SIEMPRE'),
-    (@f, 8, 'PAGAR',                'Pagar y montar comprobante',         'ROL',         @rolTes, 'SIEMPRE');
+    (@f,  1, 'SUBIR_COTIZACIONES',   'Subir cotizaciones',                 'SOLICITANTE', NULL,    'SIEMPRE'),
+    (@f,  2, 'AUTORIZAR_COTIZACION', 'Autorizar cotizacion',               'ROL',         @rolGA,  'SIEMPRE'),
+    (@f,  3, 'DECISION_ANTICIPO',    'Definir anticipo o preliminar',      'SOLICITANTE', NULL,    'SIEMPRE'),
+    (@f,  4, 'APROBAR',              'Aprobar anticipo',                   'ROL',         @rolGA,  'ANTICIPO_SI'),
+    (@f,  5, 'MONTAR_PRELIMINAR',    'Montar preliminar',                  'SOLICITANTE', NULL,    'SIEMPRE'),
+    (@f,  6, 'APROBAR',              'Aprobar preliminar',                 'ROL',         @rolGA,  'SIEMPRE'),
+    (@f,  7, 'PAGAR',                'Pagar y montar comprobante',         'ROL',         @rolTes, 'ANTICIPO_NO'),
+    (@f,  8, 'CONTABILIZAR',         'Contabilizar (en SAP)',              'ROL',         @rolCont,'ANTICIPO_NO'),
+    (@f,  9, 'CONTABILIZAR',         'Contabilizar',                       'ROL',         @rolCont,'ANTICIPO_SI'),
+    (@f, 10, 'PAGAR',                'Pagar y montar comprobante',         'ROL',         @rolTes, 'ANTICIPO_SI');
 END
 
 IF NOT EXISTS (SELECT 1 FROM dbo.T_GAS_FLUJOS WHERE TIPO='ANTICIPO' AND ORGANIZACION_VENTA IS NULL AND NOMBRE='Anticipo (general)')
@@ -247,36 +253,37 @@ BEGIN
     (@f, 4, 'PAGAR',                'Pagar y montar comprobante',         'ROL',         @rolTes, 'SIEMPRE');
 END
 
-/* Variante de cotizacion: el proveedor entrega la factura fisica, el solicitante monta el
-   preliminar en SAP y registra sus datos aqui; GA valida que la factura corresponda al valor
-   aplicado; luego paga tesoreria y contabiliza contabilidad. */
-IF NOT EXISTS (SELECT 1 FROM dbo.T_GAS_FLUJOS WHERE TIPO='COTIZACION' AND ORGANIZACION_VENTA IS NULL AND NOMBRE='Cotizacion - preliminar')
-BEGIN
-  INSERT dbo.T_GAS_FLUJOS (TIPO, NOMBRE) VALUES ('COTIZACION', 'Cotizacion - preliminar');
-  SET @f = SCOPE_IDENTITY();
-  INSERT dbo.T_GAS_FLUJO_PASOS (FLUJO_ID, ORDEN, ACCION, NOMBRE, RESPONSABLE_TIPO, ROL_ID, CONDICION) VALUES
-    (@f, 1, 'SUBIR_COTIZACIONES',   'Subir cotizaciones',                 'SOLICITANTE', NULL,    'SIEMPRE'),
-    (@f, 2, 'AUTORIZAR_COTIZACION', 'Autorizar cotizacion',               'ROL',         @rolGA,  'SIEMPRE'),
-    (@f, 3, 'MONTAR_PRELIMINAR',    'Montar preliminar (datos de SAP)',   'SOLICITANTE', NULL,    'SIEMPRE'),
-    (@f, 4, 'APROBAR',              'Aprobar preliminar',                 'ROL',         @rolGA,  'SIEMPRE'),
-    (@f, 5, 'PAGAR',                'Pagar y montar comprobante',         'ROL',         @rolTes, 'SIEMPRE'),
-    (@f, 6, 'CONTABILIZAR',         'Contabilizar (en SAP)',              'ROL',         @rolCont,'SIEMPRE');
-END
+/* MIGRACION (instalaciones anteriores). Es idempotente y no toca las solicitudes en curso
+   (cada una conserva su propia copia de los pasos).
+   1) La variante "Cotizacion - preliminar" se desactiva: ahora la eleccion anticipo/preliminar
+      se hace dentro del flujo de cotizacion, despues de autorizar la cotizacion.
+   2) Si "Cotizacion (general)" sigue con los 8 pasos originales, se reemplaza por el flujo con
+      las dos ramas, conservando los roles que ya tenia asignados. Si alguien lo personalizo,
+      no se toca. */
+UPDATE dbo.T_GAS_FLUJOS SET ACTIVO = 0, FECHA_MODIFICACION = GETDATE()
+ WHERE TIPO = 'COTIZACION' AND NOMBRE = 'Cotizacion - preliminar' AND ACTIVO = 1;
 
-/* MIGRACION: si "Cotizacion - preliminar" ya existia sin el paso de aprobacion, se agrega
-   "Aprobar preliminar" (GA) justo despues de montar el preliminar. Es idempotente y no toca
-   las solicitudes en curso (ya tienen su propia copia de los pasos). */
-DECLARE @fp int = (SELECT TOP 1 ID FROM dbo.T_GAS_FLUJOS
-                    WHERE TIPO='COTIZACION' AND ORGANIZACION_VENTA IS NULL AND NOMBRE='Cotizacion - preliminar');
-IF @fp IS NOT NULL
-   AND NOT EXISTS (SELECT 1 FROM dbo.T_GAS_FLUJO_PASOS WHERE FLUJO_ID = @fp AND ACCION = 'APROBAR')
-   AND EXISTS (SELECT 1 FROM dbo.T_GAS_FLUJO_PASOS WHERE FLUJO_ID = @fp AND ACCION = 'MONTAR_PRELIMINAR')
+DECLARE @fg int = (SELECT TOP 1 ID FROM dbo.T_GAS_FLUJOS
+                    WHERE TIPO = 'COTIZACION' AND ORGANIZACION_VENTA IS NULL AND NOMBRE = 'Cotizacion (general)');
+IF @fg IS NOT NULL
+   AND (SELECT STRING_AGG(CAST(ACCION AS varchar(30)), ',') WITHIN GROUP (ORDER BY ORDEN)
+          FROM dbo.T_GAS_FLUJO_PASOS WHERE FLUJO_ID = @fg)
+       = 'SUBIR_COTIZACIONES,AUTORIZAR_COTIZACION,DECISION_ANTICIPO,APROBAR,MONTAR_PRELIMINAR,APROBAR,CONTABILIZAR,PAGAR'
 BEGIN
-  DECLARE @ordPre int = (SELECT TOP 1 ORDEN FROM dbo.T_GAS_FLUJO_PASOS WHERE FLUJO_ID = @fp AND ACCION = 'MONTAR_PRELIMINAR' ORDER BY ORDEN);
-  -- Desplazar +1 los pasos posteriores en dos tiempos para no chocar con UNIQUE (FLUJO_ID, ORDEN).
-  UPDATE dbo.T_GAS_FLUJO_PASOS SET ORDEN = -(ORDEN + 1) WHERE FLUJO_ID = @fp AND ORDEN > @ordPre;
-  UPDATE dbo.T_GAS_FLUJO_PASOS SET ORDEN = -ORDEN        WHERE FLUJO_ID = @fp AND ORDEN < 0;
-  INSERT dbo.T_GAS_FLUJO_PASOS (FLUJO_ID, ORDEN, ACCION, NOMBRE, RESPONSABLE_TIPO, ROL_ID, CONDICION)
-  VALUES (@fp, @ordPre + 1, 'APROBAR', 'Aprobar preliminar', 'ROL', @rolGA, 'SIEMPRE');
+  DECLARE @gaR int = COALESCE((SELECT ROL_ID FROM dbo.T_GAS_FLUJO_PASOS WHERE FLUJO_ID = @fg AND ORDEN = 2), @rolGA);
+  DECLARE @coR int = COALESCE((SELECT ROL_ID FROM dbo.T_GAS_FLUJO_PASOS WHERE FLUJO_ID = @fg AND ORDEN = 7), @rolCont);
+  DECLARE @teR int = COALESCE((SELECT ROL_ID FROM dbo.T_GAS_FLUJO_PASOS WHERE FLUJO_ID = @fg AND ORDEN = 8), @rolTes);
+  DELETE FROM dbo.T_GAS_FLUJO_PASOS WHERE FLUJO_ID = @fg;
+  INSERT dbo.T_GAS_FLUJO_PASOS (FLUJO_ID, ORDEN, ACCION, NOMBRE, RESPONSABLE_TIPO, ROL_ID, CONDICION) VALUES
+    (@fg,  1, 'SUBIR_COTIZACIONES',   'Subir cotizaciones',                 'SOLICITANTE', NULL,  'SIEMPRE'),
+    (@fg,  2, 'AUTORIZAR_COTIZACION', 'Autorizar cotizacion',               'ROL',         @gaR,  'SIEMPRE'),
+    (@fg,  3, 'DECISION_ANTICIPO',    'Definir anticipo o preliminar',      'SOLICITANTE', NULL,  'SIEMPRE'),
+    (@fg,  4, 'APROBAR',              'Aprobar anticipo',                   'ROL',         @gaR,  'ANTICIPO_SI'),
+    (@fg,  5, 'MONTAR_PRELIMINAR',    'Montar preliminar',                  'SOLICITANTE', NULL,  'SIEMPRE'),
+    (@fg,  6, 'APROBAR',              'Aprobar preliminar',                 'ROL',         @gaR,  'SIEMPRE'),
+    (@fg,  7, 'PAGAR',                'Pagar y montar comprobante',         'ROL',         @teR,  'ANTICIPO_NO'),
+    (@fg,  8, 'CONTABILIZAR',         'Contabilizar (en SAP)',              'ROL',         @coR,  'ANTICIPO_NO'),
+    (@fg,  9, 'CONTABILIZAR',         'Contabilizar',                       'ROL',         @coR,  'ANTICIPO_SI'),
+    (@fg, 10, 'PAGAR',                'Pagar y montar comprobante',         'ROL',         @teR,  'ANTICIPO_SI');
 END
 GO

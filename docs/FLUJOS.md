@@ -15,7 +15,7 @@ pantalla **Flujos** sin tocar código.
 | **Responsable** | Quién ejecuta el paso: **el solicitante**, **un rol** (`T_ROLES`) o **un usuario específico**. |
 | **Condición** | Cuándo aplica el paso (siempre, solo si hay anticipo, solo si el anticipo es por viáticos…). Si no se cumple, el paso se **omite**. |
 | **Alcance** | El flujo aplica a **una organización** (1000, 2000…) o a todas, y vale para todas las oficinas de esa organización. |
-| **Variante** | Puede haber varios flujos activos del mismo tipo (p. ej. «Cotización» y «Cotización - preliminar»). Al crear la solicitud el usuario **elige** cuál usar; si solo hay uno, se usa directo. Un flujo de una organización con el **mismo nombre** que uno general lo reemplaza para esa organización. |
+| **Variante** | Puede haber varios flujos activos del mismo tipo. Al crear la solicitud el usuario **elige** cuál usar; si solo hay uno, se usa directo. Un flujo de una organización con el **mismo nombre** que uno general lo reemplaza para esa organización. |
 
 ### Roles que participan
 
@@ -38,31 +38,39 @@ pantalla **Flujos** sin tocar código.
 
 ## 2. Flujo de COTIZACIÓN
 
+Un solo flujo. Después de que GA autoriza la cotización, el solicitante decide **si necesita anticipo o si ya
+tiene el preliminar**; según eso el flujo sigue por una de dos ramas.
+
 ```mermaid
 flowchart TD
     A["1. Solicitante<br/>Sube 3 cotizaciones PDF<br/>+ proceso + ¿requiere soporte de pago?"] --> B
     B{"2. GA<br/>Autoriza cotización<br/>elige 1 de 3 + comentario"}
     B -- Rechaza --> X([Rechazada])
     B -- Autoriza --> C
-    C["3. Solicitante<br/>¿Necesita anticipo?<br/>+ datos del tercero"]
-    C -- Sí --> D{"4. GA<br/>Aprueba anticipo"}
-    C -- "No (ya tiene preliminar)" --> E
+    C{"3. Solicitante<br/>¿Anticipo o ya tiene el preliminar?<br/>+ datos del tercero"}
+    C -- "Con anticipo" --> D{"4. GA<br/>Aprueba anticipo"}
+    C -- "Con preliminar (sin anticipo)" --> E
     D -- Rechaza --> X
     D -- Aprueba --> E
     E["5. Solicitante<br/>Monta preliminar<br/>(nº, valor, tercero, soporte de pago si aplica)"] --> F
-    F{"6. GA<br/>Aprueba preliminar"}
+    F{"6. GA<br/>Aprueba preliminar<br/>(valida que la factura coincida con el valor)"}
     F -- Rechaza --> X
-    F -- Aprueba --> G
-    G["7. Contabilidad<br/>Contabiliza<br/>nº contabilización / compensación"] --> H
-    H["8. Tesorería<br/>Paga<br/>nº comprobante ZP + PDF"] --> Z([Finalizada])
+    F -- "Aprueba · con preliminar" --> P1
+    F -- "Aprueba · con anticipo" --> C1
+    P1["7. Tesorería<br/>Paga + comprobante ZP"] --> C2["8. Contabilidad<br/>Contabiliza (SAP)"]
+    C1["9. Contabilidad<br/>Contabiliza"] --> P2["10. Tesorería<br/>Paga + comprobante ZP"]
+    C2 --> Z([Finalizada])
+    P2 --> Z
 ```
 
 Detalles:
 
 - **Paso 1:** las tres cotizaciones son obligatorias y solo se aceptan **PDF** (extensión, firma `%PDF` y tipo MIME se validan). El proveedor y el valor de cada cotización son opcionales pero ayudan a GA a decidir.
-- **Paso 3:** siempre se registran los datos del tercero (NIT, razón social, celular, correo, cargo, centro de costos), que se pueden traer de `T_TERCEROS`. Si pide anticipo, el tipo es **por cotización** y debe indicar el valor.
+- **Paso 3:** el solicitante responde «¿Necesitas anticipo?». Si **sí**, indica el valor (anticipo **por cotización**). En ambos casos registra los datos del tercero (NIT, razón social, celular, correo, cargo, centro de costos; se pueden traer de `T_TERCEROS`).
 - **Paso 4:** solo si hay anticipo (`ANTICIPO_SI`); si no, se omite.
-- **Paso 5:** los datos del tercero llegan prellenados con los del paso 3 (son los mismos). Si en el paso 1 se marcó *requiere soporte de pago*, el PDF del soporte es obligatorio.
+- **Paso 5:** los datos del tercero llegan prellenados con los del paso 3. Si en el paso 1 se marcó *requiere soporte de pago*, el PDF del soporte es obligatorio.
+- **Paso 6:** GA valida que la factura corresponda al valor aplicado antes de que se pague.
+- **Pasos 7 a 10:** el orden final depende de la rama. **Con preliminar** (`ANTICIPO_NO`): primero paga Tesorería (7) y luego contabiliza Contabilidad (8). **Con anticipo** (`ANTICIPO_SI`): primero contabiliza Contabilidad (9) y luego paga Tesorería (10). Los pasos de la otra rama aparecen como «No aplica». El orden de cada rama se puede cambiar en **Flujos**.
 
 ## 3. Flujo de ANTICIPO
 
@@ -97,29 +105,6 @@ flowchart TD
     C["3. Contabilidad<br/>Contabiliza"] --> D
     D["4. Tesorería<br/>Paga + comprobante ZP"] --> Z([Finalizada])
 ```
-
-### Variante: COTIZACIÓN - PRELIMINAR
-
-Para cuando, tras aprobar la cotización, el proveedor entrega la **factura física**: el solicitante monta el
-preliminar en SAP y registra sus datos aquí; **GA valida que la factura corresponda al valor aplicado**;
-después paga Tesorería y al final contabiliza Contabilidad en SAP. No pregunta por anticipo.
-
-```mermaid
-flowchart TD
-    A["1. Solicitante<br/>Sube 3 cotizaciones PDF"] --> B
-    B{"2. GA<br/>Autoriza cotización"}
-    B -- Rechaza --> X([Rechazada])
-    B -- Autoriza --> C
-    C["3. Solicitante<br/>Monta preliminar<br/>(datos de SAP + factura + tercero)"] --> D
-    D{"4. GA<br/>Aprueba preliminar<br/>(valida que la factura coincida con el valor)"}
-    D -- Rechaza --> X
-    D -- Aprueba --> E
-    E["5. Tesorería<br/>Paga + comprobante ZP"] --> F
-    F["6. Contabilidad<br/>Contabiliza (SAP)"] --> Z([Finalizada])
-```
-
-Viene creada por `gastos.sql` con el nombre «Cotizacion - preliminar» y se puede editar o desactivar en **Flujos**.
-Si ya la tenías creada sin la aprobación de GA, volver a ejecutar `gastos.sql` agrega ese paso automáticamente.
 
 ## 5. Armar o cambiar un flujo
 
