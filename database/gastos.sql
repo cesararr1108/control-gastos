@@ -248,7 +248,8 @@ BEGIN
 END
 
 /* Variante de cotizacion: el proveedor entrega la factura fisica, el solicitante monta el
-   preliminar en SAP y registra sus datos aqui; luego paga tesoreria y contabiliza contabilidad. */
+   preliminar en SAP y registra sus datos aqui; GA valida que la factura corresponda al valor
+   aplicado; luego paga tesoreria y contabiliza contabilidad. */
 IF NOT EXISTS (SELECT 1 FROM dbo.T_GAS_FLUJOS WHERE TIPO='COTIZACION' AND ORGANIZACION_VENTA IS NULL AND NOMBRE='Cotizacion - preliminar')
 BEGIN
   INSERT dbo.T_GAS_FLUJOS (TIPO, NOMBRE) VALUES ('COTIZACION', 'Cotizacion - preliminar');
@@ -257,7 +258,25 @@ BEGIN
     (@f, 1, 'SUBIR_COTIZACIONES',   'Subir cotizaciones',                 'SOLICITANTE', NULL,    'SIEMPRE'),
     (@f, 2, 'AUTORIZAR_COTIZACION', 'Autorizar cotizacion',               'ROL',         @rolGA,  'SIEMPRE'),
     (@f, 3, 'MONTAR_PRELIMINAR',    'Montar preliminar (datos de SAP)',   'SOLICITANTE', NULL,    'SIEMPRE'),
-    (@f, 4, 'PAGAR',                'Pagar y montar comprobante',         'ROL',         @rolTes, 'SIEMPRE'),
-    (@f, 5, 'CONTABILIZAR',         'Contabilizar (en SAP)',              'ROL',         @rolCont,'SIEMPRE');
+    (@f, 4, 'APROBAR',              'Aprobar preliminar',                 'ROL',         @rolGA,  'SIEMPRE'),
+    (@f, 5, 'PAGAR',                'Pagar y montar comprobante',         'ROL',         @rolTes, 'SIEMPRE'),
+    (@f, 6, 'CONTABILIZAR',         'Contabilizar (en SAP)',              'ROL',         @rolCont,'SIEMPRE');
+END
+
+/* MIGRACION: si "Cotizacion - preliminar" ya existia sin el paso de aprobacion, se agrega
+   "Aprobar preliminar" (GA) justo despues de montar el preliminar. Es idempotente y no toca
+   las solicitudes en curso (ya tienen su propia copia de los pasos). */
+DECLARE @fp int = (SELECT TOP 1 ID FROM dbo.T_GAS_FLUJOS
+                    WHERE TIPO='COTIZACION' AND ORGANIZACION_VENTA IS NULL AND NOMBRE='Cotizacion - preliminar');
+IF @fp IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM dbo.T_GAS_FLUJO_PASOS WHERE FLUJO_ID = @fp AND ACCION = 'APROBAR')
+   AND EXISTS (SELECT 1 FROM dbo.T_GAS_FLUJO_PASOS WHERE FLUJO_ID = @fp AND ACCION = 'MONTAR_PRELIMINAR')
+BEGIN
+  DECLARE @ordPre int = (SELECT TOP 1 ORDEN FROM dbo.T_GAS_FLUJO_PASOS WHERE FLUJO_ID = @fp AND ACCION = 'MONTAR_PRELIMINAR' ORDER BY ORDEN);
+  -- Desplazar +1 los pasos posteriores en dos tiempos para no chocar con UNIQUE (FLUJO_ID, ORDEN).
+  UPDATE dbo.T_GAS_FLUJO_PASOS SET ORDEN = -(ORDEN + 1) WHERE FLUJO_ID = @fp AND ORDEN > @ordPre;
+  UPDATE dbo.T_GAS_FLUJO_PASOS SET ORDEN = -ORDEN        WHERE FLUJO_ID = @fp AND ORDEN < 0;
+  INSERT dbo.T_GAS_FLUJO_PASOS (FLUJO_ID, ORDEN, ACCION, NOMBRE, RESPONSABLE_TIPO, ROL_ID, CONDICION)
+  VALUES (@fp, @ordPre + 1, 'APROBAR', 'Aprobar preliminar', 'ROL', @rolGA, 'SIEMPRE');
 END
 GO

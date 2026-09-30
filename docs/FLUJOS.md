@@ -101,8 +101,8 @@ flowchart TD
 ### Variante: COTIZACIÓN - PRELIMINAR
 
 Para cuando, tras aprobar la cotización, el proveedor entrega la **factura física**: el solicitante monta el
-preliminar en SAP y registra sus datos aquí; después paga Tesorería y al final contabiliza Contabilidad en SAP.
-No pregunta por anticipo ni lleva aprobación de GA sobre el preliminar.
+preliminar en SAP y registra sus datos aquí; **GA valida que la factura corresponda al valor aplicado**;
+después paga Tesorería y al final contabiliza Contabilidad en SAP. No pregunta por anticipo.
 
 ```mermaid
 flowchart TD
@@ -111,11 +111,15 @@ flowchart TD
     B -- Rechaza --> X([Rechazada])
     B -- Autoriza --> C
     C["3. Solicitante<br/>Monta preliminar<br/>(datos de SAP + factura + tercero)"] --> D
-    D["4. Tesorería<br/>Paga + comprobante ZP"] --> E
-    E["5. Contabilidad<br/>Contabiliza (SAP)"] --> Z([Finalizada])
+    D{"4. GA<br/>Aprueba preliminar<br/>(valida que la factura coincida con el valor)"}
+    D -- Rechaza --> X
+    D -- Aprueba --> E
+    E["5. Tesorería<br/>Paga + comprobante ZP"] --> F
+    F["6. Contabilidad<br/>Contabiliza (SAP)"] --> Z([Finalizada])
 ```
 
 Viene creada por `gastos.sql` con el nombre «Cotizacion - preliminar» y se puede editar o desactivar en **Flujos**.
+Si ya la tenías creada sin la aprobación de GA, volver a ejecutar `gastos.sql` agrega ese paso automáticamente.
 
 ## 5. Armar o cambiar un flujo
 
