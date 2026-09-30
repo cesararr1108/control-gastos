@@ -14,8 +14,8 @@ database/gastos.sql            Tablas T_GAS_* y flujos predeterminados
 models/gastos/                 Lógica: GasDb, GasMotor (avance del flujo), GasFlujoModel, GasSolicitudModel…
 controllers/gastos/api.php     Único punto de entrada JSON (whitelist de operaciones)
 controllers/gastos/Gas*Controller.php
-views/gastos/                  index (bandeja), solicitud (detalle/acción), flujos (armador)
-lib/js/gastos/                 gastos.js (núcleo), pasos.js (formularios), bandeja/solicitud/flujos.js
+views/gastos/                  index (bandeja, tarjetas, historial + Excel), solicitud (detalle/acción), dashboard, flujos (armador)
+lib/js/gastos/                 gastos.js (núcleo), pasos.js (formularios), bandeja/solicitud/dashboard/flujos.js
 uploads/gastos/                PDF subidos (bloqueado por .htaccess; se descargan por la API)
 tests/logica.php               Pruebas sin base de datos
 ```
@@ -29,7 +29,9 @@ tests/logica.php               Pruebas sin base de datos
    `GasConfig::$FUNCIONES_CONEXION` y `GasConfig::ARCHIVO_CONEXION`). Si devuelve el enlace de `mssql_connect`, se usa;
    si no devuelve nada, se usa la última conexión abierta.
 4. **Configuración** en `models/gastos/GasConfig.php`:
-   - `$ROLES_ADMIN`: IDs de `T_ROLES` que pueden armar flujos y ver todas las solicitudes.
+   - `$ROLES_ADMIN`: IDs de `T_ROLES` con permisos de administrador (flujos, historial, dashboard).
+   - `$ROLES_ADMIN_TITULOS`: títulos de rol con los mismos permisos (por defecto `GERENCIA ADMINISTRATIVA`).
+   - `$TEMAS`: color de la interfaz por organización (`1000` amarillo suave, `2000` verde azulado).
    - `DB_LATIN1`: `true` si la conexión trabaja en Latin1/cp1252 (lo normal con `Modern_Spanish_CI_AS`).
 5. **Permisos:** el usuario del servidor web debe poder escribir en `uploads/gastos/`.
 6. **Login:** en `views/gastos/_inicio.php` ajusta `$LOGIN_URL`. El módulo lee las variables de sesión existentes
@@ -37,7 +39,7 @@ tests/logica.php               Pruebas sin base de datos
 7. **Flujos:** entra a `views/gastos/flujos.php` y asigna el rol responsable de cada paso (por flujo y organización).
    Hasta que cada paso de rol tenga responsable no se podrán crear solicitudes con ese flujo.
 
-Las vistas cargan Tailwind, jQuery y SweetAlert2 desde CDN. Si tu red no tiene internet, descárgalos y
+Las vistas cargan Tailwind, jQuery y SweetAlert2 desde CDN; la descarga a Excel carga SheetJS (`xlsx`) desde jsDelivr al pulsar el botón. Si tu red no tiene internet, descárgalos y
 cambia las etiquetas `<script>` en `views/gastos/_cabecera.php`.
 
 ## Seguridad

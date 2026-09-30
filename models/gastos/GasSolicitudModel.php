@@ -183,11 +183,57 @@ class GasSolicitudModel
 
     /* ---------------------------------------------------------------- listados */
 
+    /** FROM común de listados, tarjetas y exportación: la solicitud y su paso en curso. */
+    const FROM_LISTA = "FROM T_GAS_SOLICITUDES s
+                  LEFT JOIN T_GAS_SOLICITUD_PASOS ps ON ps.SOLICITUD_ID = s.ID AND ps.ESTADO = 'ACTUAL'
+                  LEFT JOIN T_ROLES pr ON pr.ID = ps.ROL_ID
+                  LEFT JOIN T_USUARIOS su ON su.ID = s.USUARIO_ID
+                  LEFT JOIN T_ROLES sr ON sr.ID = su.ROLES_ID
+                  LEFT JOIN T_GAS_FLUJOS fl ON fl.ID = s.FLUJO_ID";
+
+    /** Acciones que cuentan como "por aprobar", "en contabilidad" y "en tesorería". */
+    const ACC_APROBAR = "'APROBAR','AUTORIZAR_COTIZACION'";
+
+    /**
+     * Condiciones de los filtros comunes (arreglo de SQL):
+     *  estado, tipo, paso (nombre del paso en curso), q (código / NIT / tercero / preliminar / paso),
+     *  desde / hasta (AAAA-MM-DD, fecha de creación) y org (organización de venta).
+     */
+    private static function filtros($f)
+    {
+        $w = array();
+        if (!empty($f['estado']) && in_array($f['estado'], array('EN_CURSO', 'FINALIZADA', 'RECHAZADA', 'CANCELADA'), true)) {
+            $w[] = 's.ESTADO = ' . GasDb::str($f['estado']);
+        }
+        $tipos = GasCatalogo::tipos();
+        if (!empty($f['tipo']) && isset($tipos[$f['tipo']])) {
+            $w[] = 's.TIPO = ' . GasDb::str($f['tipo']);
+        }
+        if (!empty($f['paso'])) {
+            $w[] = "s.ESTADO = 'EN_CURSO' AND ps.NOMBRE = " . GasDb::str($f['paso'], 120);
+        }
+        if (!empty($f['q'])) {
+            $q   = str_replace(array('[', '%', '_'), array('[[]', '[%]', '[_]'), trim($f['q']));
+            $lit = GasDb::str('%' . $q . '%');
+            $w[] = "(s.CODIGO LIKE $lit OR s.TERCERO_NIT LIKE $lit OR s.TERCERO_NOMBRE LIKE $lit OR s.NUM_PRELIMINAR LIKE $lit OR ps.NOMBRE LIKE $lit)";
+        }
+        if (!empty($f['desde']) && GasDb::fecha($f['desde']) !== 'NULL') {
+            $w[] = 's.FECHA_CREACION >= ' . GasDb::fecha($f['desde']);
+        }
+        if (!empty($f['hasta']) && GasDb::fecha($f['hasta']) !== 'NULL') {
+            $w[] = 's.FECHA_CREACION < DATEADD(day, 1, ' . GasDb::fecha($f['hasta']) . ')';
+        }
+        if (!empty($f['org'])) {
+            $w[] = 's.ORGANIZACION_VENTA = ' . GasDb::str($f['org'], 4);
+        }
+        return $w;
+    }
+
     /**
      * Listado paginado.
-     * $vista: 'pendientes' (me toca actuar) | 'mias' | 'participadas' | 'todas' (solo admin)
-     * $f: estado, tipo, q (código / NIT / tercero), pagina, porPagina
-     * Devuelve array(filas, total, pagina, porPagina).
+     * $vista: 'pendientes' (me toca actuar) | 'mias' | 'historial' (administradores; filtra por fechas)
+     * $f: filtros de self::filtros() + pagina, porPagina
+     * Devuelve array(filas, total, pagina, paginas, porPagina).
      */
     public static function listar($vista, $f, $u)
     {
@@ -202,34 +248,17 @@ class GasSolicitudModel
                      . " OR (ps.RESPONSABLE_TIPO = 'ROL' AND ps.ROL_ID = $rid)"
                      . " OR (ps.RESPONSABLE_TIPO = 'USUARIO' AND ps.USUARIO_ID = $uid))";
                 break;
-            case 'participadas':
-                $w[] = "EXISTS (SELECT 1 FROM T_GAS_SOLICITUD_PASOS x WHERE x.SOLICITUD_ID = s.ID AND x.EJECUTADO_POR = $uid)";
-                break;
+            case 'historial':
             case 'todas':
                 if (!GasSesion::esAdmin($u)) {
-                    throw new GasError('No tienes permiso para ver todas las solicitudes.');
+                    throw new GasError('No tienes permiso para ver el historial.');
                 }
                 break;
             default: // mias
                 $w[] = "s.USUARIO_ID = $uid";
         }
-        if (!empty($f['estado']) && in_array($f['estado'], array('EN_CURSO', 'FINALIZADA', 'RECHAZADA', 'CANCELADA'), true)) {
-            $w[] = 's.ESTADO = ' . GasDb::str($f['estado']);
-        }
-        $tipos = GasCatalogo::tipos();
-        if (!empty($f['tipo']) && isset($tipos[$f['tipo']])) {
-            $w[] = 's.TIPO = ' . GasDb::str($f['tipo']);
-        }
-        if (!empty($f['q'])) {
-            $q   = str_replace(array('[', '%', '_'), array('[[]', '[%]', '[_]'), trim($f['q']));
-            $lit = GasDb::str('%' . $q . '%');
-            $w[] = "(s.CODIGO LIKE $lit OR s.TERCERO_NIT LIKE $lit OR s.TERCERO_NOMBRE LIKE $lit OR s.NUM_PRELIMINAR LIKE $lit)";
-        }
-        $where = implode(' AND ', $w);
-        $from  = "FROM T_GAS_SOLICITUDES s
-                  LEFT JOIN T_GAS_SOLICITUD_PASOS ps ON ps.SOLICITUD_ID = s.ID AND ps.ESTADO = 'ACTUAL'
-                  LEFT JOIN T_ROLES pr ON pr.ID = ps.ROL_ID
-                  LEFT JOIN T_USUARIOS su ON su.ID = s.USUARIO_ID";
+        $where = implode(' AND ', array_merge($w, self::filtros($f)));
+        $from  = self::FROM_LISTA;
 
         $porPagina = max(5, min(50, (int) (isset($f['porPagina']) ? $f['porPagina'] : 15)));
         $total     = (int) GasDb::scalar("SELECT COUNT(*) $from WHERE $where");
@@ -254,6 +283,90 @@ class GasSolicitudModel
     {
         $r = self::listar('pendientes', array('porPagina' => 5), $u);
         return $r['total'];
+    }
+
+    /**
+     * Tarjetas de resumen. Los administradores ven todas las solicitudes; los demás, las suyas.
+     * "Por aprobar", "Contabilidad" y "Tesorería" se cuentan por la ACCION del paso en curso,
+     * así valen para cualquier flujo.
+     */
+    public static function estadisticas($u)
+    {
+        $w = GasSesion::esAdmin($u) ? '1 = 1' : 's.USUARIO_ID = ' . (int) $u['id'];
+        $r = GasDb::row(
+            "SELECT COUNT(*) AS TOTAL,
+                    SUM(CASE WHEN s.ESTADO = 'EN_CURSO' THEN 1 ELSE 0 END) AS EN_CURSO,
+                    SUM(CASE WHEN s.ESTADO = 'EN_CURSO' AND ps.ACCION IN (" . self::ACC_APROBAR . ") THEN 1 ELSE 0 END) AS POR_APROBAR,
+                    SUM(CASE WHEN s.ESTADO = 'EN_CURSO' AND ps.ACCION = 'CONTABILIZAR' THEN 1 ELSE 0 END) AS CONTABILIDAD,
+                    SUM(CASE WHEN s.ESTADO = 'EN_CURSO' AND ps.ACCION = 'PAGAR' THEN 1 ELSE 0 END) AS TESORERIA,
+                    SUM(CASE WHEN s.ESTADO = 'FINALIZADA' THEN 1 ELSE 0 END) AS FINALIZADAS,
+                    SUM(CASE WHEN s.ESTADO IN ('RECHAZADA', 'CANCELADA') THEN 1 ELSE 0 END) AS CERRADAS
+               FROM T_GAS_SOLICITUDES s
+               LEFT JOIN T_GAS_SOLICITUD_PASOS ps ON ps.SOLICITUD_ID = s.ID AND ps.ESTADO = 'ACTUAL'
+              WHERE $w"
+        );
+        $out = array('todas' => GasSesion::esAdmin($u));
+        foreach (array('TOTAL', 'EN_CURSO', 'POR_APROBAR', 'CONTABILIDAD', 'TESORERIA', 'FINALIZADAS', 'CERRADAS') as $k) {
+            $out[$k] = $r && $r[$k] !== null ? (int) $r[$k] : 0;
+        }
+        return $out;
+    }
+
+    /**
+     * Datos del dashboard (administradores): cantidad y valor por tipo, por rol del solicitante
+     * y por rol + tipo, con los filtros de fecha / organización / estado.
+     * Valor = valor del preliminar o, si aún no hay, el del anticipo.
+     */
+    public static function dashboard($f)
+    {
+        $w     = self::filtros(array_intersect_key($f, array_flip(array('desde', 'hasta', 'org', 'estado'))));
+        $where = $w ? 'WHERE ' . implode(' AND ', $w) : '';
+        $from  = "FROM T_GAS_SOLICITUDES s
+                  LEFT JOIN T_USUARIOS su ON su.ID = s.USUARIO_ID
+                  LEFT JOIN T_ROLES sr ON sr.ID = su.ROLES_ID";
+        $valor = 'SUM(COALESCE(s.VALOR_TOTAL, s.VALOR_ANTICIPO, 0))';
+        $rol   = "COALESCE(sr.TITULO, 'Sin rol')";
+        return array(
+            'porTipo'    => GasDb::all("SELECT s.TIPO, COUNT(*) AS CANT, $valor AS VALOR $from $where GROUP BY s.TIPO ORDER BY CANT DESC"),
+            'porRol'     => GasDb::all("SELECT $rol AS ROL, COUNT(*) AS CANT, $valor AS VALOR $from $where GROUP BY $rol ORDER BY CANT DESC"),
+            'porRolTipo' => GasDb::all("SELECT $rol AS ROL, s.TIPO, COUNT(*) AS CANT, $valor AS VALOR $from $where GROUP BY $rol, s.TIPO ORDER BY 1, 2"),
+            'porEstado'  => GasDb::all("SELECT s.ESTADO, COUNT(*) AS CANT $from $where GROUP BY s.ESTADO"),
+        );
+    }
+
+    /** Filas del historial para descargar en Excel (máx. 20.000), con los mismos filtros del listado. */
+    public static function exportar($f)
+    {
+        $w     = self::filtros($f);
+        $where = $w ? 'WHERE ' . implode(' AND ', $w) : '';
+        return GasDb::all(
+            "SELECT TOP 20000 s.CODIGO, s.TIPO, fl.NOMBRE AS FLUJO, s.ESTADO, ps.NOMBRE AS PASO_ACTUAL,
+                    CASE ps.RESPONSABLE_TIPO WHEN 'SOLICITANTE' THEN 'Solicitante' ELSE pr.TITULO END AS RESPONSABLE_ACTUAL,
+                    LTRIM(RTRIM(su.NOMBRES)) + ' ' + LTRIM(RTRIM(su.APELLIDOS)) AS SOLICITANTE, sr.TITULO AS ROL_SOLICITANTE,
+                    LTRIM(RTRIM(s.ORGANIZACION_VENTA)) AS ORGANIZACION, LTRIM(RTRIM(s.OFICINA_VENTAS)) AS OFICINA,
+                    s.PROCESO, s.DESCRIPCION, s.TERCERO_NIT, s.TERCERO_NOMBRE, s.CARGO, s.CENTRO_COSTOS,
+                    s.TIPO_ANTICIPO, s.VALOR_ANTICIPO, s.VALOR_TOTAL, s.NUM_PRELIMINAR,
+                    CONVERT(varchar(10), s.FECHA_FACTURA, 120) AS FECHA_FACTURA,
+                    s.NUM_CONTABILIZACION, s.NUM_COMPENSACION, s.NUM_COMPROBANTE_ZP,
+                    CONVERT(varchar(10), s.FECHA_PAGO, 120) AS FECHA_PAGO,
+                    CONVERT(varchar(19), s.FECHA_CREACION, 120) AS FECHA_CREACION,
+                    CONVERT(varchar(19), s.FECHA_FIN, 120) AS FECHA_FIN, s.MOTIVO_CIERRE
+               " . self::FROM_LISTA . " $where
+              ORDER BY s.ID DESC"
+        );
+    }
+
+    /** Nombres de los pasos en curso (para filtrar por estado actual). */
+    public static function pasosActuales()
+    {
+        $rows = GasDb::all("SELECT DISTINCT ps.NOMBRE FROM T_GAS_SOLICITUD_PASOS ps
+                             JOIN T_GAS_SOLICITUDES s ON s.ID = ps.SOLICITUD_ID
+                            WHERE ps.ESTADO = 'ACTUAL' AND s.ESTADO = 'EN_CURSO' ORDER BY ps.NOMBRE");
+        $out = array();
+        foreach ($rows as $r) {
+            $out[] = $r['NOMBRE'];
+        }
+        return $out;
     }
 
     /* ---------------------------------------------------------------- internos */

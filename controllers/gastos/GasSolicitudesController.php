@@ -59,6 +59,24 @@ class GasSolicitudesController
         return array('id' => (int) $in['id']);
     }
 
+    /** Tarjetas de resumen de la bandeja. */
+    public static function estadisticas($u, $in, $files)
+    {
+        return GasSolicitudModel::estadisticas($u);
+    }
+
+    /** Dashboard (solo administradores; ver api.php). */
+    public static function dashboard($u, $in, $files)
+    {
+        return GasSolicitudModel::dashboard($in);
+    }
+
+    /** Historial para Excel (solo administradores; ver api.php). */
+    public static function exportar($u, $in, $files)
+    {
+        return GasSolicitudModel::exportar($in);
+    }
+
     /** Solo el número de pendientes (insignia del menú). */
     public static function contador($u, $in, $files)
     {

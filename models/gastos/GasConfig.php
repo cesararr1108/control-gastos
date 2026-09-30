@@ -12,6 +12,21 @@ class GasConfig
     public static $ROLES_ADMIN = array(1);
 
     /**
+     * Roles cuyo TÍTULO (T_ROLES.TITULO) da permisos de administrador, además de $ROLES_ADMIN.
+     * Por defecto Gerencia administrativa tiene los mismos permisos que el administrador.
+     */
+    public static $ROLES_ADMIN_TITULOS = array('GERENCIA ADMINISTRATIVA');
+
+    /**
+     * Tema de color por organización de venta (ses_NumOrg). Cada tema reemplaza la paleta
+     * principal de la interfaz; las organizaciones que no estén aquí usan el tema por defecto.
+     */
+    public static $TEMAS = array(
+        '1000' => 'amarillo', // amarillo suave
+        '2000' => 'turquesa', // verde azulado
+    );
+
+    /**
      * Función de tu proyecto que abre la conexión mssql (se prueba en este orden) y el
      * archivo, relativo a models/, donde está definida.
      */

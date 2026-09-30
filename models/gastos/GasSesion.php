@@ -25,9 +25,43 @@ class GasSesion
         );
     }
 
+    /**
+     * ¿Tiene permisos de administrador? Sí si su rol está en GasConfig::$ROLES_ADMIN o si el título
+     * del rol coincide con GasConfig::$ROLES_ADMIN_TITULOS (p. ej. Gerencia administrativa).
+     * El resultado de la consulta del título se guarda en la sesión.
+     */
     public static function esAdmin($u)
     {
-        return in_array((int) $u['rolId'], array_map('intval', GasConfig::$ROLES_ADMIN), true);
+        $rol = (int) $u['rolId'];
+        if (in_array($rol, array_map('intval', GasConfig::$ROLES_ADMIN), true)) {
+            return true;
+        }
+        if (!GasConfig::$ROLES_ADMIN_TITULOS || $rol <= 0) {
+            return false;
+        }
+        if (isset($_SESSION['gas_admin_rol']) && is_array($_SESSION['gas_admin_rol']) && $_SESSION['gas_admin_rol'][0] === $rol) {
+            return $_SESSION['gas_admin_rol'][1];
+        }
+        try {
+            $titulo = (string) GasDb::scalar('SELECT TITULO FROM T_ROLES WHERE ID = ' . $rol);
+        } catch (Exception $e) {
+            return false; // sin BD no se concede nada
+        }
+        $es = false;
+        foreach (GasConfig::$ROLES_ADMIN_TITULOS as $t) {
+            if ($t !== '' && stripos($titulo, $t) !== false) {
+                $es = true;
+                break;
+            }
+        }
+        $_SESSION['gas_admin_rol'] = array($rol, $es);
+        return $es;
+    }
+
+    /** Tema de color según la organización del usuario ('' = por defecto). */
+    public static function tema($u)
+    {
+        return isset(GasConfig::$TEMAS[$u['org']]) ? GasConfig::$TEMAS[$u['org']] : '';
     }
 }
 

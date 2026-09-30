@@ -16,6 +16,7 @@ class GasCatalogoController
             'responsables' => GasCatalogo::responsables(),
             'conceptos'  => GasCatalogo::conceptosViaticos(),
             'procesos'   => GasListasModel::procesos($u['org']),
+            'pasosActuales' => GasSolicitudModel::pasosActuales(),
         );
         if ($out['esAdmin']) {
             $out['roles']    = GasListasModel::roles();

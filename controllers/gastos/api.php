@@ -48,6 +48,9 @@ $RUTAS = array(
     'solicitudes.obtener'  => array('GasSolicitudesController', 'obtener', 'POST', false),
     'solicitudes.ejecutar' => array('GasSolicitudesController', 'ejecutar', 'POST', false),
     'solicitudes.cancelar' => array('GasSolicitudesController', 'cancelar', 'POST', false),
+    'solicitudes.estadisticas' => array('GasSolicitudesController', 'estadisticas', 'POST', false),
+    'solicitudes.dashboard' => array('GasSolicitudesController', 'dashboard', 'POST', true),
+    'solicitudes.exportar' => array('GasSolicitudesController', 'exportar', 'POST', true),
     'solicitudes.contador' => array('GasSolicitudesController', 'contador', 'POST', false),
     'flujos.listar'        => array('GasFlujosController', 'listar', 'POST', true),
     'flujos.obtener'       => array('GasFlujosController', 'obtener', 'POST', true),
@@ -59,11 +62,11 @@ $RUTAS = array(
 /** ¿El usuario de la sesión es administrador? (solo ellos ven el detalle técnico de un error). */
 function gasEsAdminSesion()
 {
-    if (session_id() === '') {
-        @session_start();
+    try {
+        return class_exists('GasSesion') && GasSesion::esAdmin(GasSesion::actual());
+    } catch (Exception $e) {
+        return false;
     }
-    $rol = isset($_SESSION['ses_RolesId']) ? (int) $_SESSION['ses_RolesId'] : -1;
-    return class_exists('GasConfig') && in_array($rol, array_map('intval', GasConfig::$ROLES_ADMIN), true);
 }
 
 // Un error fatal de PHP (clase o función inexistente, memoria…) no debe dejar una respuesta vacía.
