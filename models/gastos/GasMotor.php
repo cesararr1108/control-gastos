@@ -188,7 +188,7 @@ class GasMotor
         }
 
         GasDb::query('UPDATE T_GAS_SOLICITUDES SET REQUIERE_ANTICIPO = 0, TIPO_ANTICIPO = NULL, VALOR_ANTICIPO = NULL WHERE ID = ' . (int) $sol['ID']);
-        self::registrarPreliminar($sol, $paso, $in, $files, $u);
+        self::registrarPreliminar($sol, $paso, $in, $files, $u, true); // aquí solo se adjunta la factura
 
         // El paso "Montar preliminar" (si es del solicitante) ya quedó hecho: se marca completado para que no se repita.
         $pendiente = GasDb::row("SELECT TOP 1 ID FROM T_GAS_SOLICITUD_PASOS
@@ -233,8 +233,9 @@ class GasMotor
     /**
      * Registra el preliminar y la factura. Lo usan el paso «Montar preliminar» y la decisión
      * «ya tengo el preliminar» (DECISION_ANTICIPO). $paso es el paso que se está ejecutando.
+     * Con $soloFactura solo se recibe la factura en PDF (sin soporte de pago ni preliminar en PDF).
      */
-    private static function registrarPreliminar($sol, $paso, $in, $files, $u)
+    private static function registrarPreliminar($sol, $paso, $in, $files, $u, $soloFactura = false)
     {
         $num   = self::texto($in, 'num_preliminar', 30, 'Indica el número de preliminar.');
         $valor = self::valorPositivo($in, 'valor_total', 'Indica el valor del preliminar.');
@@ -261,6 +262,9 @@ class GasMotor
             'soporte_pago'   => array('SOPORTE_PAGO', 'Soporte de pago', $exigeSoporte),
             'preliminar_pdf' => array('PRELIMINAR', 'Preliminar (PDF)', false),
         );
+        if ($soloFactura) {
+            $archivos = array('factura_pdf' => $archivos['factura_pdf']);
+        }
         foreach ($archivos as $campo => $meta) {
             $f   = isset($files[$campo]) ? $files[$campo] : null;
             $hay = $f && isset($f['error']) && $f['error'] !== UPLOAD_ERR_NO_FILE;

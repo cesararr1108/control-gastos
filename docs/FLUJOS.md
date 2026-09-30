@@ -68,7 +68,7 @@ Detalles:
 - **Paso 1:** las tres cotizaciones son obligatorias y solo se aceptan **PDF** (extensión, firma `%PDF` y tipo MIME se validan). El proveedor y el valor de cada cotización son opcionales pero ayudan a GA a decidir.
 - **Paso 3:** el solicitante responde «¿Necesitas anticipo?» y registra los datos del tercero (NIT, razón social, celular, correo, cargo, centro de costos; se pueden traer de `T_TERCEROS`).
   - **Sí:** indica el valor del anticipo (**por cotización**) y sigue la aprobación del anticipo (paso 4).
-  - **No, ya tengo el preliminar:** registra ahí mismo el **número de preliminar, la fecha y el valor de la factura y adjunta la factura en PDF** (más el soporte de pago si aplica). Es lo mismo que pide el paso 5, que queda como realizado, así que la solicitud pasa directo a la aprobación del preliminar por GA (paso 6). Antes de enviar, el sistema avisa a qué paso se pasa y cuáles se omiten.
+  - **No, ya tengo el preliminar:** registra ahí mismo el **número de preliminar, la fecha y el valor de la factura y adjunta solo la factura en PDF**. Es lo mismo que pide el paso 5, que queda como realizado, así que la solicitud pasa directo a la aprobación del preliminar por GA (paso 6). Antes de enviar, el sistema avisa a qué paso se pasa y cuáles se omiten.
 - **Paso 4:** solo si hay anticipo (`ANTICIPO_SI`); si no, se omite.
 - **Paso 5 (solo con anticipo):** número de preliminar, fecha y valor de la factura, factura en PDF (obligatoria) y el soporte de pago si en el paso 1 se marcó *requiere soporte de pago*. Los datos del tercero llegan prellenados con los del paso 3.
 - **Paso 6:** GA valida que la factura corresponda al valor aplicado antes de que se pague.
