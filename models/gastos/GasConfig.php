@@ -18,12 +18,12 @@ class GasConfig
     public static $ROLES_ADMIN_TITULOS = array('GERENCIA ADMINISTRATIVA');
 
     /**
-     * Tema de color por organización de venta (ses_NumOrg). Cada tema reemplaza la paleta
-     * principal de la interfaz; las organizaciones que no estén aquí usan el tema por defecto.
+     * Tema de color por organización de venta (ses_NumOrg): colorea letras, botones, pestañas y
+     * gráficas (no el fondo ni la barra superior). Las organizaciones que no estén aquí usan el tema por defecto.
      */
     public static $TEMAS = array(
         '1000' => 'amarillo', // amarillo suave
-        '2000' => 'turquesa', // verde azulado
+        '2000' => 'turquesa', // verde azulado (#279ca2)
     );
 
     /**
