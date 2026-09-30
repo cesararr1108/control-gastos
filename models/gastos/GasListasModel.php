@@ -60,6 +60,14 @@ class GasListasModel
         return $rows;
     }
 
+    /** Datos del usuario de la sesión para prellenar "datos de quien solicita" (F-FR-023). */
+    public static function usuario($id)
+    {
+        return GasDb::row("SELECT LTRIM(RTRIM(NOMBRES)) + ' ' + LTRIM(RTRIM(APELLIDOS)) AS NOMBRE, LTRIM(RTRIM(IDENTIFICACION)) AS IDENTIFICACION,
+                                  LTRIM(RTRIM(CELULAR)) AS CELULAR, LTRIM(RTRIM(EMAIL)) AS EMAIL, LTRIM(RTRIM(EXT)) AS EXT
+                             FROM T_USUARIOS WHERE ID = " . (int) $id);
+    }
+
     /** Usuarios activos por login o nombre (para asignar un paso a una persona concreta). */
     public static function usuarios($q)
     {

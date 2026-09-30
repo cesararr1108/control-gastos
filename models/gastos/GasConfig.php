@@ -39,7 +39,18 @@ class GasConfig
         return dirname(dirname(dirname(__FILE__))) . '/uploads/gastos';
     }
 
-    /** Tamano maximo por PDF, en MB. */
+    /**
+     * Retefuente de la legalizacion de viaticos (formato F-FR-024): a cada gasto de hotel o
+     * alimentacion superior al tope se le descuenta la tasa.
+     */
+    const RETEFUENTE_TOPE = 110000;
+    const RETEFUENTE_TASA = 0.025;
+    public static $RETEFUENTE_TIPOS = array('HOTEL', 'ALIMENT');
+
+    /** Dias que tiene el colaborador para legalizar despues del viaje (clausula del F-FR-023). */
+    const DIAS_LEGALIZACION = 30;
+
+        /** Tamano maximo por PDF, en MB. */
     const MAX_PDF_MB = 10;
 
     /**

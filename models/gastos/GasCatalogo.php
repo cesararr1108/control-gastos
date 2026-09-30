@@ -53,7 +53,7 @@ class GasCatalogo
             'MONTAR_PRELIMINAR' => array(
                 'nombre' => 'Montar preliminar', 'actor' => 'SOLICITANTE', 'decide' => false,
                 'tipos'  => array(self::TIPO_COTIZACION, self::TIPO_ANTICIPO, self::TIPO_FACTURA),
-                'ayuda'  => 'El solicitante registra el número de preliminar, la fecha y el valor de la factura, adjunta la factura en PDF y, si aplica, el soporte de pago.',
+                'ayuda'  => 'El solicitante registra el número de preliminar, la fecha y el valor de la factura y adjunta la factura en PDF. En un anticipo por viáticos, en su lugar diligencia la legalización de gastos y sube los soportes en un solo PDF; el sistema calcula el saldo.',
             ),
             'APROBAR' => array(
                 'nombre' => 'Aprobar / rechazar', 'actor' => 'ROL', 'decide' => true,
@@ -110,15 +110,34 @@ class GasCatalogo
         );
     }
 
-    /** Conceptos del formulario de gastos de viaje (ajustar a tu formato oficial). */
+    /** Conceptos del "valor presupuestado" del formato F-FR-023 (solicitud de viáticos). */
     public static function conceptosViaticos()
     {
         return array(
-            'ALIMENTACION' => 'Alimentación',
-            'HOSPEDAJE'    => 'Hospedaje',
-            'TRANSPORTE'   => 'Transporte',
-            'PEAJES'       => 'Peajes / parqueadero',
-            'OTROS'        => 'Otros',
+            'TIQUETES_AEREOS'     => 'Tiquetes aéreos',
+            'TIQUETES_TERRESTRES' => 'Tiquetes terrestres',
+            'TAXIS_BUSES'         => 'Taxis y buses',
+            'PEAJES'              => 'Peajes',
+            'HOSPEDAJE'           => 'Hospedaje',
+            'ALIMENTACION'        => 'Alimentación',
+            'FLETES'              => 'Fletes y acarreos',
+            'VIATICOS_ADMIN'      => 'Viáticos admin.',
+            'OTROS'               => 'Otros',
+        );
+    }
+
+    /** Columnas de gasto del formato F-FR-024 (legalización de viáticos). */
+    public static function tiposGastoLegalizacion()
+    {
+        return array(
+            'TRANSP'    => 'Transp',
+            'BUS_TAXIS' => 'Bus/taxis',
+            'HOTEL'     => 'Hotel',
+            'ALIMENT'   => 'Aliment',
+            'ATENCION'  => 'Atención',
+            'GASOLINA'  => 'Gasolina',
+            'SERVICIOS' => 'Servicios',
+            'OTROS'     => 'Otros',
         );
     }
 }

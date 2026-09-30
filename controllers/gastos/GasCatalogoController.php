@@ -15,6 +15,10 @@ class GasCatalogoController
             'condiciones' => GasCatalogo::condiciones(),
             'responsables' => GasCatalogo::responsables(),
             'conceptos'  => GasCatalogo::conceptosViaticos(),
+            'tiposGasto' => GasCatalogo::tiposGastoLegalizacion(),
+            'retefuente' => array('tope' => GasConfig::RETEFUENTE_TOPE, 'tasa' => GasConfig::RETEFUENTE_TASA, 'tipos' => GasConfig::$RETEFUENTE_TIPOS),
+            'diasLegalizacion' => GasConfig::DIAS_LEGALIZACION,
+            'yo'         => GasListasModel::usuario($u['id']),
             'procesos'   => GasListasModel::procesos($u['org']),
             'pasosActuales' => GasSolicitudModel::pasosActuales(),
         );

@@ -92,9 +92,18 @@ CREATE TABLE dbo.T_GAS_SOLICITUDES (
   VIATICOS_FECHA_INICIO date         NULL,
   VIATICOS_FECHA_FIN    date         NULL,
   VIATICOS_MOTIVO       varchar(300) NULL,
+  VIATICOS_TEL_FIJO     varchar(20)  NULL,
+  VIATICOS_RUTA_SALIDA  varchar(150) NULL,
+  VIATICOS_TIPO_SALIDA  varchar(10)  NULL,         -- AEREO | TERRESTRE
+  VIATICOS_RUTA_REGRESO varchar(150) NULL,
+  VIATICOS_TIPO_REGRESO varchar(10)  NULL,
+  VIATICOS_ACEPTA_DESCUENTO bit      NULL,         -- autorizacion art. 150 y 151 CST (formato F-FR-023)
 
   /* Numeros que montan los responsables */
   FECHA_FACTURA        date          NULL,
+  VALOR_LEGALIZADO     numeric(15,2) NULL,                -- total legalizado (anticipo por viaticos)
+  RETEFUENTE_LEGALIZACION numeric(15,2) NULL,             -- retefuente descontada en la legalizacion (F-FR-024)
+  SALDO_LEGALIZACION   numeric(15,2) NULL,                -- anticipo - legalizado: >0 a favor de la empresa, <0 a favor del tercero
   NUM_PRELIMINAR       varchar(30)   NULL,
   NUM_CONTABILIZACION  varchar(30)   NULL,
   NUM_COMPENSACION     varchar(30)   NULL,
@@ -111,6 +120,19 @@ GO
 /* Instalaciones anteriores: fecha de la factura del preliminar. */
 IF COL_LENGTH('dbo.T_GAS_SOLICITUDES', 'FECHA_FACTURA') IS NULL
   ALTER TABLE dbo.T_GAS_SOLICITUDES ADD FECHA_FACTURA date NULL;
+GO
+/* Instalaciones anteriores: legalizacion del anticipo por viaticos. */
+IF COL_LENGTH('dbo.T_GAS_SOLICITUDES', 'VALOR_LEGALIZADO') IS NULL
+  ALTER TABLE dbo.T_GAS_SOLICITUDES ADD VALOR_LEGALIZADO numeric(15,2) NULL;
+IF COL_LENGTH('dbo.T_GAS_SOLICITUDES', 'SALDO_LEGALIZACION') IS NULL
+  ALTER TABLE dbo.T_GAS_SOLICITUDES ADD SALDO_LEGALIZACION numeric(15,2) NULL;
+IF COL_LENGTH('dbo.T_GAS_SOLICITUDES', 'RETEFUENTE_LEGALIZACION') IS NULL
+  ALTER TABLE dbo.T_GAS_SOLICITUDES ADD RETEFUENTE_LEGALIZACION numeric(15,2) NULL;
+/* Formato F-FR-023 (solicitud de viaticos). */
+IF COL_LENGTH('dbo.T_GAS_SOLICITUDES', 'VIATICOS_TEL_FIJO') IS NULL
+  ALTER TABLE dbo.T_GAS_SOLICITUDES ADD VIATICOS_TEL_FIJO varchar(20) NULL, VIATICOS_RUTA_SALIDA varchar(150) NULL,
+    VIATICOS_TIPO_SALIDA varchar(10) NULL, VIATICOS_RUTA_REGRESO varchar(150) NULL, VIATICOS_TIPO_REGRESO varchar(10) NULL,
+    VIATICOS_ACEPTA_DESCUENTO bit NULL;
 GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_T_GAS_SOLICITUDES_USUARIO')
   CREATE NONCLUSTERED INDEX IX_T_GAS_SOLICITUDES_USUARIO ON dbo.T_GAS_SOLICITUDES (USUARIO_ID, ESTADO);
@@ -157,7 +179,7 @@ CREATE TABLE dbo.T_GAS_ARCHIVOS (
   ID              int IDENTITY(1,1) NOT NULL,
   SOLICITUD_ID    int          NOT NULL,
   PASO_ORDEN      int          NULL,
-  CATEGORIA       varchar(20)  NOT NULL,   -- COTIZACION | FACTURA | SOPORTE_PAGO | PRELIMINAR | COMPROBANTE
+  CATEGORIA       varchar(20)  NOT NULL,   -- COTIZACION | FACTURA | LEGALIZACION | SOPORTE_PAGO | PRELIMINAR | COMPROBANTE
   NOMBRE_ORIGINAL varchar(200) NOT NULL,
   RUTA            varchar(120) NOT NULL,   -- nombre del archivo dentro de uploads/gastos/
   TAMANO          int          NOT NULL,
@@ -202,6 +224,25 @@ CREATE TABLE dbo.T_GAS_VIATICOS_DETALLE (
 );
 GO
 
+/* Lineas del formato de legalizacion de viaticos (F-FR-024). Cada gasto va en una columna del
+   formato (TIPO_GASTO). Los soportes (facturas y, si hay reintegro, su comprobante) se suben en un
+   solo PDF (T_GAS_ARCHIVOS, CATEGORIA = LEGALIZACION). */
+IF OBJECT_ID('dbo.T_GAS_LEGALIZACION_DETALLE') IS NULL
+CREATE TABLE dbo.T_GAS_LEGALIZACION_DETALLE (
+  ID             int IDENTITY(1,1) NOT NULL,
+  SOLICITUD_ID   int           NOT NULL,
+  FECHA          date          NOT NULL,
+  CENTRO_COSTO   varchar(40)   NOT NULL,
+  NUM_DOCUMENTO  varchar(30)   NULL,       -- "Doc": n.o de factura o recibo
+  DETALLE        varchar(200)  NOT NULL,   -- "Ciudad y detalles"
+  TIPO_GASTO     varchar(12)   NOT NULL,   -- TRANSP | BUS_TAXIS | HOTEL | ALIMENT | ATENCION | GASOLINA | SERVICIOS | OTROS
+  VALOR          numeric(15,2) NOT NULL,
+  RETEFUENTE     numeric(15,2) NOT NULL DEFAULT 0,
+  CONSTRAINT PK_T_GAS_LEGALIZACION_DETALLE PRIMARY KEY CLUSTERED (ID),
+  CONSTRAINT FK_T_GAS_LEGAL_SOL FOREIGN KEY (SOLICITUD_ID) REFERENCES dbo.T_GAS_SOLICITUDES (ID)
+);
+GO
+
 /* ----------------------------------------------------------------------------
    4. FLUJOS PREDETERMINADOS (generales, para todas las organizaciones)
    Los responsables se buscan por el titulo del rol (T_ROLES.TITULO). Si no hay
@@ -241,8 +282,8 @@ BEGIN
   INSERT dbo.T_GAS_FLUJO_PASOS (FLUJO_ID, ORDEN, ACCION, NOMBRE, RESPONSABLE_TIPO, ROL_ID, CONDICION) VALUES
     (@f, 1, 'SOLICITAR_ANTICIPO',   'Solicitar anticipo',                 'SOLICITANTE', NULL,    'SIEMPRE'),
     (@f, 2, 'APROBAR',              'Aprobar anticipo',                   'ROL',         @rolGA,  'SIEMPRE'),
-    (@f, 3, 'MONTAR_PRELIMINAR',    'Montar preliminar',                  'SOLICITANTE', NULL,    'ANTICIPO_FACTURA'),
-    (@f, 4, 'APROBAR',              'Aprobar preliminar',                 'ROL',         @rolGA,  'ANTICIPO_FACTURA'),
+    (@f, 3, 'MONTAR_PRELIMINAR',    'Montar preliminar / legalizacion',   'SOLICITANTE', NULL,    'SIEMPRE'),
+    (@f, 4, 'APROBAR',              'Aprobar preliminar / legalizacion',  'ROL',         @rolGA,  'SIEMPRE'),
     (@f, 5, 'CONTABILIZAR',         'Contabilizar',                       'ROL',         @rolCont,'SIEMPRE'),
     (@f, 6, 'PAGAR',                'Pagar y montar comprobante',         'ROL',         @rolTes, 'SIEMPRE');
 END
@@ -293,4 +334,14 @@ BEGIN
     (@fg,  9, 'CONTABILIZAR',         'Contabilizar',                       'ROL',         @coR,  'ANTICIPO_SI'),
     (@fg, 10, 'PAGAR',                'Pagar y montar comprobante',         'ROL',         @teR,  'ANTICIPO_SI');
 END
+
+/* MIGRACION: en "Anticipo (general)" original, el preliminar y su aprobacion solo aplicaban al
+   anticipo por factura. Ahora tambien aplican a viaticos (alli el preliminar es la legalizacion). */
+DECLARE @fa int = (SELECT TOP 1 ID FROM dbo.T_GAS_FLUJOS
+                    WHERE TIPO = 'ANTICIPO' AND ORGANIZACION_VENTA IS NULL AND NOMBRE = 'Anticipo (general)');
+UPDATE dbo.T_GAS_FLUJO_PASOS
+   SET CONDICION = 'SIEMPRE',
+       NOMBRE = CASE ORDEN WHEN 3 THEN 'Montar preliminar / legalizacion' ELSE 'Aprobar preliminar / legalizacion' END
+ WHERE FLUJO_ID = @fa AND ORDEN IN (3, 4) AND CONDICION = 'ANTICIPO_FACTURA'
+   AND ACCION IN ('MONTAR_PRELIMINAR', 'APROBAR');
 GO

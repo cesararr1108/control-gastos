@@ -209,7 +209,10 @@ class GasMotor
             throw new GasError('Elige el tipo de anticipo: por factura o por viáticos.');
         }
         $proceso = self::proceso($in, true);
-        $desc    = self::texto($in, 'descripcion', 500, 'Describe brevemente el gasto.');
+        // En viáticos la descripción es el motivo del viaje (formato F-FR-023).
+        $desc    = $tipo === 'VIATICOS'
+            ? self::texto($in, 'viaticos_motivo', 500, 'Indica el motivo de la solicitud.')
+            : self::texto($in, 'descripcion', 500, 'Describe brevemente el gasto.');
         self::guardarTercero($sol['ID'], $in);
 
         if ($tipo === 'FACTURA') {
@@ -237,6 +240,11 @@ class GasMotor
      */
     private static function registrarPreliminar($sol, $paso, $in, $files, $u, $soloFactura = false)
     {
+        // Anticipo por viáticos: en lugar de la factura se diligencia el formato de legalización.
+        if (isset($sol['TIPO_ANTICIPO']) && $sol['TIPO_ANTICIPO'] === 'VIATICOS') {
+            self::registrarLegalizacion($sol, $paso, $in, $files, $u);
+            return;
+        }
         $num   = self::texto($in, 'num_preliminar', 30, 'Indica el número de preliminar.');
         $valor = self::valorPositivo($in, 'valor_total', 'Indica el valor del preliminar.');
         $fechaF = isset($in['fecha_factura']) ? trim($in['fecha_factura']) : '';
@@ -400,53 +408,176 @@ class GasMotor
     }
 
     /**
-     * Guarda cabecera y líneas del formulario de viáticos y devuelve el total.
-     * Total de cada línea = cantidad x valor unitario (se recalcula en el servidor).
+     * Solicitud de viáticos, formato F-FR-023. Guarda datos del viaje, pasajes y el valor presupuestado
+     * por concepto, y devuelve el total solicitado (recalculado en el servidor).
+     * Validaciones: salida >= hoy, regreso >= salida, si hay tiquetes aéreos/terrestres debe haber una
+     * ruta de ese tipo, "Otros" con valor exige decir cuál, total > 0 y autorización de descuento aceptada.
      */
     private static function guardarViaticos($solId, $in)
     {
-        $destino = self::texto($in, 'viaticos_destino', 100, 'Indica el destino del viaje.');
-        $motivo  = self::texto($in, 'viaticos_motivo', 300, 'Indica el motivo del viaje.');
-        $ini     = isset($in['viaticos_fecha_inicio']) ? $in['viaticos_fecha_inicio'] : '';
-        $fin     = isset($in['viaticos_fecha_fin']) ? $in['viaticos_fecha_fin'] : '';
+        $lugar  = self::texto($in, 'viaticos_destino', 100, 'Indica el lugar o destino del viaje.');
+        $motivo = self::texto($in, 'viaticos_motivo', 300, 'Indica el motivo de la solicitud.');
+        $ini    = isset($in['viaticos_fecha_inicio']) ? trim($in['viaticos_fecha_inicio']) : '';
+        $fin    = isset($in['viaticos_fecha_fin']) ? trim($in['viaticos_fecha_fin']) : '';
         if (GasDb::fecha($ini) === 'NULL' || GasDb::fecha($fin) === 'NULL') {
-            throw new GasError('Indica las fechas de inicio y fin del viaje.');
+            throw new GasError('Indica la fecha de salida y la de regreso.');
+        }
+        if ($ini < date('Y-m-d')) {
+            throw new GasError('La fecha de salida no puede ser anterior a hoy: el anticipo se solicita antes del viaje.');
         }
         if ($fin < $ini) {
-            throw new GasError('La fecha final no puede ser anterior a la inicial.');
+            throw new GasError('La fecha de regreso no puede ser anterior a la fecha de salida.');
         }
-        $lineas = isset($in['lineas']) && is_array($in['lineas']) ? $in['lineas'] : array();
+
+        // Solicitud de pasajes
+        $tiposRuta = array('AEREO', 'TERRESTRE');
+        $rutaS = isset($in['ruta_salida']) ? trim($in['ruta_salida']) : '';
+        $rutaR = isset($in['ruta_regreso']) ? trim($in['ruta_regreso']) : '';
+        $tipoS = isset($in['tipo_salida']) && in_array($in['tipo_salida'], $tiposRuta, true) ? $in['tipo_salida'] : '';
+        $tipoR = isset($in['tipo_regreso']) && in_array($in['tipo_regreso'], $tiposRuta, true) ? $in['tipo_regreso'] : '';
+        if (($rutaS !== '' && $tipoS === '') || ($rutaR !== '' && $tipoR === '')) {
+            throw new GasError('Indica si cada ruta de pasajes es aérea o terrestre.');
+        }
+        if (($tipoS !== '' && $rutaS === '') || ($tipoR !== '' && $rutaR === '')) {
+            throw new GasError('Escribe la ruta de los pasajes que marcaste como aéreos o terrestres.');
+        }
+
+        // Valor presupuestado
         $conceptos = GasCatalogo::conceptosViaticos();
+        $pres = isset($in['presupuesto']) && is_array($in['presupuesto']) ? $in['presupuesto'] : array();
         $total = 0.0;
-        $sql   = array();
+        $sql = array();
+        foreach ($conceptos as $cod => $nombre) {
+            $v = isset($pres[$cod]) ? GasDb::aNumero($pres[$cod]) : 0;
+            if ($v < 0) {
+                throw new GasError("El valor de «$nombre» no puede ser negativo.");
+            }
+            if ($v == 0) {
+                continue;
+            }
+            $desc = null;
+            if ($cod === 'OTROS') {
+                $desc = self::texto($in, 'presupuesto_otros', 200, 'Indica cuál es el concepto «Otros».');
+            }
+            $total += round($v, 2);
+            $sql[] = 'INSERT INTO T_GAS_VIATICOS_DETALLE (SOLICITUD_ID, CONCEPTO, DESCRIPCION, CANTIDAD, VALOR_UNITARIO, VALOR_TOTAL) VALUES ('
+                . (int) $solId . ', ' . GasDb::str($cod) . ', ' . GasDb::str($desc, 200) . ', 1, ' . GasDb::num($v) . ', ' . GasDb::num($v) . ')';
+        }
+        if ($total <= 0) {
+            throw new GasError('Indica al menos un valor presupuestado.');
+        }
+        $aereos     = isset($pres['TIQUETES_AEREOS']) ? GasDb::aNumero($pres['TIQUETES_AEREOS']) : 0;
+        $terrestres = isset($pres['TIQUETES_TERRESTRES']) ? GasDb::aNumero($pres['TIQUETES_TERRESTRES']) : 0;
+        if ($aereos > 0 && $tipoS !== 'AEREO' && $tipoR !== 'AEREO') {
+            throw new GasError('Presupuestaste tiquetes aéreos: indica la ruta aérea en «Solicitud de pasajes».');
+        }
+        if ($terrestres > 0 && $tipoS !== 'TERRESTRE' && $tipoR !== 'TERRESTRE') {
+            throw new GasError('Presupuestaste tiquetes terrestres: indica la ruta terrestre en «Solicitud de pasajes».');
+        }
+        if (!isset($in['acepta_descuento']) || $in['acepta_descuento'] !== 'SI') {
+            throw new GasError('Debes aceptar la autorización de descuento por falta de legalización (art. 150 y 151 CST).');
+        }
+
+        GasDb::query('DELETE FROM T_GAS_VIATICOS_DETALLE WHERE SOLICITUD_ID = ' . (int) $solId);
+        foreach ($sql as $q) {
+            GasDb::query($q);
+        }
+        GasDb::query('UPDATE T_GAS_SOLICITUDES SET VIATICOS_DESTINO = ' . GasDb::str($lugar, 100) . ', VIATICOS_MOTIVO = ' . GasDb::str($motivo, 300)
+            . ', VIATICOS_FECHA_INICIO = ' . GasDb::fecha($ini) . ', VIATICOS_FECHA_FIN = ' . GasDb::fecha($fin)
+            . ', VIATICOS_TEL_FIJO = ' . GasDb::str(isset($in['viaticos_tel_fijo']) ? preg_replace('/[^0-9 ]/', '', $in['viaticos_tel_fijo']) : null, 20)
+            . ', VIATICOS_RUTA_SALIDA = ' . GasDb::str($rutaS, 150) . ', VIATICOS_TIPO_SALIDA = ' . GasDb::str($tipoS)
+            . ', VIATICOS_RUTA_REGRESO = ' . GasDb::str($rutaR, 150) . ', VIATICOS_TIPO_REGRESO = ' . GasDb::str($tipoR)
+            . ', VIATICOS_ACEPTA_DESCUENTO = 1 WHERE ID = ' . (int) $solId);
+        return $total;
+    }
+
+    /**
+     * Legalización de viáticos, formato F-FR-024 (en el paso del preliminar).
+     * Cada línea: fecha, centro de costo, doc (n.º factura), ciudad y detalles, tipo de gasto (columna
+     * del formato) y valor. Validaciones: fecha dentro del viaje (se admite un día antes y uno después
+     * por traslados) y no futura, detalle y valor > 0.
+     * Retefuente: GasConfig::RETEFUENTE_TASA a cada gasto de hotel/alimentación mayor al tope.
+     * Total cuenta de gastos = suma - retefuente. Saldo = suma recibida (anticipo) - total cuenta:
+     *   > 0 a favor de la empresa (el empleado reintegra; el comprobante va en el PDF de soportes)
+     *   < 0 a favor del empleado (se le paga la diferencia)
+     */
+    private static function registrarLegalizacion($sol, $paso, $in, $files, $u)
+    {
+        $num   = self::texto($in, 'num_preliminar', 30, 'Indica el número de preliminar.');
+        $tipos = GasCatalogo::tiposGastoLegalizacion();
+        $hoy   = date('Y-m-d');
+        $desde = !empty($sol['VIATICOS_FECHA_INICIO']) ? date('Y-m-d', strtotime($sol['VIATICOS_FECHA_INICIO'] . ' -1 day')) : null;
+        $hasta = !empty($sol['VIATICOS_FECHA_FIN']) ? date('Y-m-d', strtotime($sol['VIATICOS_FECHA_FIN'] . ' +1 day')) : null;
+
+        $lineas = isset($in['legal']) && is_array($in['legal']) ? $in['legal'] : array();
+        $suma = 0.0;
+        $rete = 0.0;
+        $sql  = array();
+        $n    = 0;
         foreach ($lineas as $l) {
             if (!is_array($l)) {
                 continue;
             }
-            $concepto = isset($l['concepto']) ? $l['concepto'] : '';
-            $cant     = isset($l['cantidad']) ? GasDb::aNumero($l['cantidad']) : 0;
-            $unit     = isset($l['valor_unitario']) ? GasDb::aNumero($l['valor_unitario']) : 0;
-            if ($concepto === '' && $cant == 0 && $unit == 0) {
+            $fecha = isset($l['fecha']) ? trim($l['fecha']) : '';
+            $det   = isset($l['detalle']) ? trim($l['detalle']) : '';
+            $tipo  = isset($l['tipo']) ? $l['tipo'] : '';
+            $valor = isset($l['valor']) ? GasDb::aNumero($l['valor']) : 0;
+            if ($fecha === '' && $det === '' && $valor == 0) {
                 continue; // fila vacía
             }
-            if (!isset($conceptos[$concepto]) || $cant <= 0 || $unit <= 0) {
-                throw new GasError('Revisa las líneas de gastos: concepto, cantidad y valor unitario son obligatorios.');
+            $n++;
+            if (GasDb::fecha($fecha) === 'NULL') {
+                throw new GasError("Legalización, línea $n: fecha inválida.");
             }
-            $sub    = round($cant * $unit, 2);
-            $total += $sub;
-            $sql[]  = 'INSERT INTO T_GAS_VIATICOS_DETALLE (SOLICITUD_ID, CONCEPTO, DESCRIPCION, CANTIDAD, VALOR_UNITARIO, VALOR_TOTAL) VALUES ('
-                . (int) $solId . ', ' . GasDb::str($concepto) . ', ' . GasDb::str(isset($l['descripcion']) ? $l['descripcion'] : null, 200)
-                . ', ' . GasDb::num($cant) . ', ' . GasDb::num($unit) . ', ' . GasDb::num($sub) . ')';
+            if ($fecha > $hoy) {
+                throw new GasError("Legalización, línea $n: la fecha no puede ser futura.");
+            }
+            if (($desde && $fecha < $desde) || ($hasta && $fecha > $hasta)) {
+                throw new GasError("Legalización, línea $n: la fecha debe estar dentro del viaje ("
+                    . $sol['VIATICOS_FECHA_INICIO'] . ' a ' . $sol['VIATICOS_FECHA_FIN'] . ', se admite un día antes y uno después).');
+            }
+            if (!isset($tipos[$tipo])) {
+                throw new GasError("Legalización, línea $n: elige el tipo de gasto.");
+            }
+            if ($det === '') {
+                throw new GasError("Legalización, línea $n: escribe la ciudad y el detalle.");
+            }
+            if ($valor <= 0) {
+                throw new GasError("Legalización, línea $n: el valor debe ser mayor que cero.");
+            }
+            $cc = isset($l['centro_costo']) && trim($l['centro_costo']) !== '' ? trim($l['centro_costo']) : (string) $sol['CENTRO_COSTOS'];
+            if ($cc === '') {
+                throw new GasError("Legalización, línea $n: indica el centro de costo.");
+            }
+            $valor = round($valor, 2);
+            $rf = (in_array($tipo, GasConfig::$RETEFUENTE_TIPOS, true) && $valor > GasConfig::RETEFUENTE_TOPE)
+                ? round($valor * GasConfig::RETEFUENTE_TASA) : 0;
+            $suma += $valor;
+            $rete += $rf;
+            $sql[] = 'INSERT INTO T_GAS_LEGALIZACION_DETALLE (SOLICITUD_ID, FECHA, CENTRO_COSTO, NUM_DOCUMENTO, DETALLE, TIPO_GASTO, VALOR, RETEFUENTE) VALUES ('
+                . (int) $sol['ID'] . ', ' . GasDb::fecha($fecha) . ', ' . GasDb::str($cc, 40) . ', '
+                . GasDb::str(isset($l['documento']) ? $l['documento'] : null, 30) . ', ' . GasDb::str($det, 200) . ', '
+                . GasDb::str($tipo) . ', ' . GasDb::num($valor) . ', ' . GasDb::num($rf) . ')';
         }
         if (!$sql) {
-            throw new GasError('Agrega al menos una línea de gastos de viaje.');
+            throw new GasError('Agrega al menos un gasto a la legalización.');
         }
+
+        $g = GasArchivos::guardarPdf(isset($files['soportes_legalizacion']) ? $files['soportes_legalizacion'] : null,
+            'Soportes de la legalización (un solo PDF)');
+        self::$rutasNuevas[] = $g['ruta'];
+        self::registrarArchivo($sol['ID'], $paso['ORDEN'], 'LEGALIZACION', $g, $u);
+
+        GasDb::query('DELETE FROM T_GAS_LEGALIZACION_DETALLE WHERE SOLICITUD_ID = ' . (int) $sol['ID']);
         foreach ($sql as $q) {
             GasDb::query($q);
         }
-        GasDb::query('UPDATE T_GAS_SOLICITUDES SET VIATICOS_DESTINO = ' . GasDb::str($destino, 100) . ', VIATICOS_FECHA_INICIO = ' . GasDb::fecha($ini)
-            . ', VIATICOS_FECHA_FIN = ' . GasDb::fecha($fin) . ', VIATICOS_MOTIVO = ' . GasDb::str($motivo, 300) . ' WHERE ID = ' . (int) $solId);
-        return $total;
+        $totalCuenta = round($suma - $rete, 2);
+        $recibido    = isset($sol['VALOR_ANTICIPO']) ? (float) $sol['VALOR_ANTICIPO'] : 0.0;
+        $saldo       = round($recibido - $totalCuenta, 2);
+        GasDb::query('UPDATE T_GAS_SOLICITUDES SET NUM_PRELIMINAR = ' . GasDb::str($num, 30) . ', VALOR_TOTAL = ' . GasDb::num($totalCuenta)
+            . ', VALOR_LEGALIZADO = ' . GasDb::num($totalCuenta) . ', RETEFUENTE_LEGALIZACION = ' . GasDb::num($rete)
+            . ', SALDO_LEGALIZACION = ' . GasDb::num($saldo) . ' WHERE ID = ' . (int) $sol['ID']);
     }
 
     /** Inserta el registro de un PDF ya guardado y devuelve su ID. */
