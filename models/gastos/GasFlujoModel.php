@@ -43,13 +43,14 @@ class GasFlujoModel
      * Flujos activos de un tipo que puede usar una organización (sin pasos).
      * Aplican los de esa organización y los generales (sin organización); si un flujo de la
      * organización tiene el mismo NOMBRE que uno general, el de la organización lo reemplaza.
-     * Cada flujo vale para todas las oficinas de su organización.
+     * Cada flujo vale para todas las oficinas de su organización (aunque un flujo antiguo tenga
+     * OFICINA_VENTAS guardada, se ignora).
      */
     public static function disponibles($tipo, $organizacion)
     {
         $rows = GasDb::all(
             'SELECT ID, NOMBRE, ORGANIZACION_VENTA FROM T_GAS_FLUJOS
-              WHERE ACTIVO = 1 AND OFICINA_VENTAS IS NULL AND TIPO = ' . GasDb::str($tipo) . '
+              WHERE ACTIVO = 1 AND TIPO = ' . GasDb::str($tipo) . '
                 AND (ORGANIZACION_VENTA IS NULL OR ORGANIZACION_VENTA = ' . GasDb::str($organizacion) . ')
               ORDER BY NOMBRE, (CASE WHEN ORGANIZACION_VENTA IS NULL THEN 1 ELSE 0 END), ID'
         );
