@@ -169,17 +169,34 @@ class GasMotor
         return array('decision' => 'APROBADO', 'comentario' => $comentario);
     }
 
-    /** DECISION_ANTICIPO (flujo de cotización): ¿necesita anticipo? + datos del tercero. */
+    /**
+     * DECISION_ANTICIPO (flujo de cotización): ¿necesita anticipo?
+     *  - Sí: valor del anticipo + datos del tercero; sigue la aprobación del anticipo.
+     *  - No (ya tiene el preliminar): se registra aquí mismo el preliminar (número, fecha y valor de la
+     *    factura, factura en PDF) y el paso «Montar preliminar» queda realizado, de modo que sigue la
+     *    aprobación del preliminar por GA. Los pasos de anticipo se omiten por su condición.
+     */
     private static function hDecisionAnticipo($sol, $paso, $in, $files, $u)
     {
         $necesita = self::siNo($in, 'requiere_anticipo', 'Indica si necesitas anticipo.');
-        self::guardarTercero($sol['ID'], $in);
         if ($necesita) {
+            self::guardarTercero($sol['ID'], $in);
             $valor = self::valorPositivo($in, 'valor_anticipo', 'Indica el valor del anticipo.');
             GasDb::query("UPDATE T_GAS_SOLICITUDES SET REQUIERE_ANTICIPO = 1, TIPO_ANTICIPO = 'COTIZACION', VALOR_ANTICIPO = "
                 . GasDb::num($valor) . ' WHERE ID = ' . (int) $sol['ID']);
-        } else {
-            GasDb::query('UPDATE T_GAS_SOLICITUDES SET REQUIERE_ANTICIPO = 0, TIPO_ANTICIPO = NULL, VALOR_ANTICIPO = NULL WHERE ID = ' . (int) $sol['ID']);
+            return array('decision' => 'COMPLETADO');
+        }
+
+        GasDb::query('UPDATE T_GAS_SOLICITUDES SET REQUIERE_ANTICIPO = 0, TIPO_ANTICIPO = NULL, VALOR_ANTICIPO = NULL WHERE ID = ' . (int) $sol['ID']);
+        self::registrarPreliminar($sol, $paso, $in, $files, $u);
+
+        // El paso "Montar preliminar" (si es del solicitante) ya quedó hecho: se marca completado para que no se repita.
+        $pendiente = GasDb::row("SELECT TOP 1 ID FROM T_GAS_SOLICITUD_PASOS
+                                  WHERE SOLICITUD_ID = " . (int) $sol['ID'] . " AND ESTADO = 'PENDIENTE' AND ACCION = 'MONTAR_PRELIMINAR'
+                                    AND RESPONSABLE_TIPO = 'SOLICITANTE' AND ORDEN > " . (int) $paso['ORDEN'] . ' ORDER BY ORDEN');
+        if ($pendiente) {
+            GasDb::query("UPDATE T_GAS_SOLICITUD_PASOS SET ESTADO = 'COMPLETADO', DECISION = 'COMPLETADO', EJECUTADO_POR = " . (int) $u['id']
+                . ", COMENTARIO = 'Registrado al definir que ya tenía el preliminar', FECHA_INICIO = GETDATE(), FECHA_FIN = GETDATE() WHERE ID = " . (int) $pendiente['ID']);
         }
         return array('decision' => 'COMPLETADO');
     }
@@ -206,11 +223,25 @@ class GasMotor
         return array('decision' => 'COMPLETADO');
     }
 
-    /** MONTAR_PRELIMINAR: número de preliminar, valor, tercero y soporte de pago si aplica. */
+    /** MONTAR_PRELIMINAR: número de preliminar, fecha y valor de la factura, tercero y PDF de la factura. */
     private static function hMontarPreliminar($sol, $paso, $in, $files, $u)
+    {
+        self::registrarPreliminar($sol, $paso, $in, $files, $u);
+        return array('decision' => 'COMPLETADO');
+    }
+
+    /**
+     * Registra el preliminar y la factura. Lo usan el paso «Montar preliminar» y la decisión
+     * «ya tengo el preliminar» (DECISION_ANTICIPO). $paso es el paso que se está ejecutando.
+     */
+    private static function registrarPreliminar($sol, $paso, $in, $files, $u)
     {
         $num   = self::texto($in, 'num_preliminar', 30, 'Indica el número de preliminar.');
         $valor = self::valorPositivo($in, 'valor_total', 'Indica el valor del preliminar.');
+        $fechaF = isset($in['fecha_factura']) ? trim($in['fecha_factura']) : '';
+        if (GasDb::fecha($fechaF) === 'NULL') {
+            throw new GasError('Indica la fecha de la factura.');
+        }
         self::guardarTercero($sol['ID'], $in);
 
         // Si el flujo no pidió proceso antes (p. ej. flujo de factura), se pide aquí.
@@ -223,13 +254,18 @@ class GasMotor
             GasDb::query('UPDATE T_GAS_SOLICITUDES SET DESCRIPCION = ' . GasDb::str($in['descripcion'], 500) . ' WHERE ID = ' . (int) $sol['ID']);
         }
 
-        // Soporte de pago: obligatorio si la cotización lo exigió; opcional en los demás casos.
+        // La factura en PDF es obligatoria. El soporte de pago lo es solo si la cotización lo exigió.
         $exigeSoporte = !empty($sol['REQUIERE_SOPORTE_PAGO']);
-        foreach (array('soporte_pago' => array('SOPORTE_PAGO', 'Soporte de pago'), 'preliminar_pdf' => array('PRELIMINAR', 'Preliminar (PDF)')) as $campo => $meta) {
-            $f = isset($files[$campo]) ? $files[$campo] : null;
+        $archivos = array(
+            'factura_pdf'    => array('FACTURA', 'Factura (PDF)', true),
+            'soporte_pago'   => array('SOPORTE_PAGO', 'Soporte de pago', $exigeSoporte),
+            'preliminar_pdf' => array('PRELIMINAR', 'Preliminar (PDF)', false),
+        );
+        foreach ($archivos as $campo => $meta) {
+            $f   = isset($files[$campo]) ? $files[$campo] : null;
             $hay = $f && isset($f['error']) && $f['error'] !== UPLOAD_ERR_NO_FILE;
-            if (!$hay && $campo === 'soporte_pago' && $exigeSoporte) {
-                throw new GasError('Esta solicitud requiere soporte de pago en PDF.');
+            if (!$hay && $meta[2]) {
+                throw new GasError($campo === 'soporte_pago' ? 'Esta solicitud requiere soporte de pago en PDF.' : 'Adjunta la factura en PDF.');
             }
             if ($hay) {
                 $g = GasArchivos::guardarPdf($f, $meta[1]);
@@ -238,8 +274,7 @@ class GasMotor
             }
         }
         GasDb::query('UPDATE T_GAS_SOLICITUDES SET NUM_PRELIMINAR = ' . GasDb::str($num, 30) . ', VALOR_TOTAL = ' . GasDb::num($valor)
-            . ' WHERE ID = ' . (int) $sol['ID']);
-        return array('decision' => 'COMPLETADO');
+            . ', FECHA_FACTURA = ' . GasDb::fecha($fechaF) . ' WHERE ID = ' . (int) $sol['ID']);
     }
 
     /** APROBAR: aprueba o rechaza (anticipo o preliminar, según cómo se llame el paso). */

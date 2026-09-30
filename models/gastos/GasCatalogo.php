@@ -43,7 +43,7 @@ class GasCatalogo
             'DECISION_ANTICIPO' => array(
                 'nombre' => 'Definir anticipo y tercero', 'actor' => 'SOLICITANTE', 'decide' => false,
                 'tipos'  => array(self::TIPO_COTIZACION),
-                'ayuda'  => 'El solicitante indica si necesita anticipo (por cotización) y registra los datos del tercero.',
+                'ayuda'  => 'El solicitante indica si necesita anticipo (por cotización) o si ya tiene el preliminar. Con anticipo registra el valor; sin anticipo registra aquí mismo el preliminar y la factura (el paso «Montar preliminar» queda hecho).',
             ),
             'SOLICITAR_ANTICIPO' => array(
                 'nombre' => 'Solicitar anticipo', 'actor' => 'SOLICITANTE', 'decide' => false,
@@ -53,7 +53,7 @@ class GasCatalogo
             'MONTAR_PRELIMINAR' => array(
                 'nombre' => 'Montar preliminar', 'actor' => 'SOLICITANTE', 'decide' => false,
                 'tipos'  => array(self::TIPO_COTIZACION, self::TIPO_ANTICIPO, self::TIPO_FACTURA),
-                'ayuda'  => 'El solicitante registra el número de preliminar, el valor y, si aplica, el soporte de pago en PDF.',
+                'ayuda'  => 'El solicitante registra el número de preliminar, la fecha y el valor de la factura, adjunta la factura en PDF y, si aplica, el soporte de pago.',
             ),
             'APROBAR' => array(
                 'nombre' => 'Aprobar / rechazar', 'actor' => 'ROL', 'decide' => true,
