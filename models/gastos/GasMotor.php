@@ -169,12 +169,16 @@ class GasMotor
         return array('decision' => 'APROBADO', 'comentario' => $comentario);
     }
 
-    /** DECISION_ANTICIPO (flujo de cotización): ¿necesita anticipo? + datos del tercero. */
+    /**
+     * DECISION_ANTICIPO (flujo de cotización): ¿necesita anticipo?
+     *  - Sí: valor del anticipo + datos del tercero, y sigue la aprobación del anticipo.
+     *  - No: pasa directo a montar el preliminar (allí se piden el tercero y la factura).
+     */
     private static function hDecisionAnticipo($sol, $paso, $in, $files, $u)
     {
         $necesita = self::siNo($in, 'requiere_anticipo', 'Indica si necesitas anticipo.');
-        self::guardarTercero($sol['ID'], $in);
         if ($necesita) {
+            self::guardarTercero($sol['ID'], $in);
             $valor = self::valorPositivo($in, 'valor_anticipo', 'Indica el valor del anticipo.');
             GasDb::query("UPDATE T_GAS_SOLICITUDES SET REQUIERE_ANTICIPO = 1, TIPO_ANTICIPO = 'COTIZACION', VALOR_ANTICIPO = "
                 . GasDb::num($valor) . ' WHERE ID = ' . (int) $sol['ID']);

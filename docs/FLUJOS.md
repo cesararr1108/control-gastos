@@ -43,9 +43,9 @@ flowchart TD
     B{"2. GA<br/>Autoriza cotización<br/>elige 1 de 3 + comentario"}
     B -- Rechaza --> X([Rechazada])
     B -- Autoriza --> C
-    C["3. Solicitante<br/>¿Necesita anticipo?<br/>+ datos del tercero"]
-    C -- Sí --> D{"4. GA<br/>Aprueba anticipo"}
-    C -- "No (ya tiene preliminar)" --> E
+    C["3. Solicitante<br/>¿Necesita anticipo?"]
+    C -- "Sí: valor + datos del tercero" --> D{"4. GA<br/>Aprueba anticipo"}
+    C -- "No (ya tiene preliminar)<br/>pasa directo al paso 5" --> E
     D -- Rechaza --> X
     D -- Aprueba --> E
     E["5. Solicitante<br/>Monta preliminar<br/>(nº, valor, tercero, soporte de pago si aplica)"] --> F
@@ -59,9 +59,9 @@ flowchart TD
 Detalles:
 
 - **Paso 1:** las tres cotizaciones son obligatorias y solo se aceptan **PDF** (extensión, firma `%PDF` y tipo MIME se validan). El proveedor y el valor de cada cotización son opcionales pero ayudan a GA a decidir.
-- **Paso 3:** siempre se registran los datos del tercero (NIT, razón social, celular, correo, cargo, centro de costos), que se pueden traer de `T_TERCEROS`. Si pide anticipo, el tipo es **por cotización** y debe indicar el valor.
+- **Paso 3:** solo pregunta si necesita anticipo. Si **sí**, indica el valor (anticipo **por cotización**) y los datos del tercero (NIT, razón social, celular, correo, cargo, centro de costos; se pueden traer de `T_TERCEROS`). Si **no**, pasa directo al paso 5, donde registra el tercero junto con el preliminar.
 - **Paso 4:** solo si hay anticipo (`ANTICIPO_SI`); si no, se omite.
-- **Paso 5:** los datos del tercero llegan prellenados con los del paso 3 (son los mismos). Si en el paso 1 se marcó *requiere soporte de pago*, el PDF del soporte es obligatorio.
+- **Paso 5:** los datos del tercero llegan prellenados con los del paso 3 si hubo anticipo; si no, se llenan aquí. Si en el paso 1 se marcó *requiere soporte de pago*, el PDF del soporte es obligatorio.
 
 ## 3. Flujo de ANTICIPO
 
