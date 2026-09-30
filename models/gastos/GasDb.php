@@ -8,17 +8,54 @@
 class GasDb
 {
     private static $link = null;
+    private static $cargada = false;
 
-    /** Devuelve la conexion (usa tu funcion conexion()) y la reutiliza en la peticion. */
+    /**
+     * Devuelve la conexión reutilizándola durante la petición. Usa la función de conexión
+     * existente del proyecto: GasConfig::$FUNCIONES_CONEXION (por defecto conectar(), que
+     * vive en models/funciones.php). Si esa función devuelve el recurso mssql se usa ese;
+     * si no devuelve nada, se usa la última conexión abierta por mssql_connect.
+     */
     public static function link()
     {
-        if (self::$link === null) {
-            if (!function_exists('conexion')) {
-                require_once dirname(dirname(__FILE__)) . '/conexion.php';
-            }
-            self::$link = conexion();
+        if (self::$cargada) {
+            return self::$link;
         }
+        $fn = null;
+        foreach (GasConfig::$FUNCIONES_CONEXION as $nombre) {
+            if (function_exists($nombre)) {
+                $fn = $nombre;
+                break;
+            }
+        }
+        if ($fn === null) {
+            // Cargar el archivo del proyecto donde vive la función (models/funciones.php).
+            $archivo = dirname(dirname(__FILE__)) . '/' . GasConfig::ARCHIVO_CONEXION;
+            if (is_file($archivo)) {
+                require_once $archivo;
+            }
+            foreach (GasConfig::$FUNCIONES_CONEXION as $nombre) {
+                if (function_exists($nombre)) {
+                    $fn = $nombre;
+                    break;
+                }
+            }
+        }
+        if ($fn === null) {
+            throw new Exception('No se encontró la función de conexión (' . implode('() / ', GasConfig::$FUNCIONES_CONEXION)
+                . '()). Revisa GasConfig::$FUNCIONES_CONEXION y GasConfig::ARCHIVO_CONEXION.');
+        }
+        $enlace = call_user_func($fn);
+        self::$link = is_resource($enlace) ? $enlace : null; // null => mssql usa la última conexión abierta
+        self::$cargada = true;
         return self::$link;
+    }
+
+    /** mssql_query con o sin enlace explícito. */
+    private static function ejecutar($sql)
+    {
+        $l = self::link();
+        return $l ? @mssql_query($sql, $l) : @mssql_query($sql);
     }
 
     /* ---------------------------------------------------------------- escapes */
@@ -106,7 +143,7 @@ class GasDb
     /** Ejecuta un SQL; lanza Exception si falla. Devuelve el recurso resultado. */
     public static function query($sql)
     {
-        $res = @mssql_query($sql, self::link());
+        $res = self::ejecutar($sql);
         if ($res === false) {
             throw new Exception('Error SQL: ' . mssql_get_last_message());
         }
@@ -152,7 +189,7 @@ class GasDb
 
     public static function begin()    { self::query('BEGIN TRAN'); }
     public static function commit()   { self::query('COMMIT TRAN'); }
-    public static function rollback() { @mssql_query('IF @@TRANCOUNT > 0 ROLLBACK TRAN', self::link()); }
+    public static function rollback() { self::ejecutar('IF @@TRANCOUNT > 0 ROLLBACK TRAN'); }
 
     /* ---------------------------------------------------------------- internos */
 

@@ -55,6 +55,33 @@ $RUTAS = array(
     'archivos.ver'         => array('GasArchivosController', 'ver', 'GET', false),
 );
 
+/** ¿El usuario de la sesión es administrador? (solo ellos ven el detalle técnico de un error). */
+function gasEsAdminSesion()
+{
+    if (session_id() === '') {
+        @session_start();
+    }
+    $rol = isset($_SESSION['ses_RolesId']) ? (int) $_SESSION['ses_RolesId'] : -1;
+    return class_exists('GasConfig') && in_array($rol, array_map('intval', GasConfig::$ROLES_ADMIN), true);
+}
+
+// Un error fatal de PHP (clase o función inexistente, memoria…) no debe dejar una respuesta vacía.
+register_shutdown_function(function () {
+    $e = error_get_last();
+    if ($e && in_array($e['type'], array(E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR), true)) {
+        error_log('[gastos] FATAL ' . $e['message'] . ' en ' . $e['file'] . ':' . $e['line']);
+        if (!headers_sent()) {
+            header('HTTP/1.1 500 Internal Server Error');
+            header('Content-Type: application/json; charset=UTF-8');
+        }
+        $msg = 'Ocurrió un error inesperado. Intenta de nuevo o contacta a soporte.';
+        if (gasEsAdminSesion()) {
+            $msg .= ' [Detalle para administradores: ' . $e['message'] . ' en ' . basename($e['file']) . ':' . $e['line'] . ']';
+        }
+        echo json_encode(array('ok' => false, 'mensaje' => $msg));
+    }
+});
+
 function gasResponder($arr, $codigo = 200)
 {
     if ($codigo !== 200) {
@@ -106,5 +133,9 @@ try {
     gasResponder(array('ok' => false, 'mensaje' => $e->getMessage()));
 } catch (Exception $e) {
     error_log('[gastos] ' . $e->getMessage() . ' en ' . $e->getFile() . ':' . $e->getLine());
-    gasResponder(array('ok' => false, 'mensaje' => 'Ocurrió un error inesperado. Intenta de nuevo o contacta a soporte.'), 500);
+    $msg = 'Ocurrió un error inesperado. Intenta de nuevo o contacta a soporte.';
+    if (gasEsAdminSesion()) {
+        $msg .= ' [Detalle para administradores: ' . $e->getMessage() . ']';
+    }
+    gasResponder(array('ok' => false, 'mensaje' => $msg), 500);
 }

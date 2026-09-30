@@ -11,6 +11,13 @@ class GasConfig
      */
     public static $ROLES_ADMIN = array(1);
 
+    /**
+     * Función de tu proyecto que abre la conexión mssql (se prueba en este orden) y el
+     * archivo, relativo a models/, donde está definida.
+     */
+    public static $FUNCIONES_CONEXION = array('conectar', 'conexion');
+    const ARCHIVO_CONEXION = 'funciones.php';
+
     /** Carpeta fisica de los PDF (no debe ser accesible por URL; ver uploads/gastos/.htaccess). */
     public static function dirUploads()
     {

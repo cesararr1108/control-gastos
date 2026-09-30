@@ -11,7 +11,6 @@ por organización u oficina. Solicitante → Gerencia administrativa → Contabi
 
 ```
 database/gastos.sql            Tablas T_GAS_* y flujos predeterminados
-models/conexion.php            PLANTILLA de conexion() (no la uses si ya tienes la tuya)
 models/gastos/                 Lógica: GasDb, GasMotor (avance del flujo), GasFlujoModel, GasSolicitudModel…
 controllers/gastos/api.php     Único punto de entrada JSON (whitelist de operaciones)
 controllers/gastos/Gas*Controller.php
@@ -26,8 +25,9 @@ tests/logica.php               Pruebas sin base de datos
 1. **Copia** las carpetas al proyecto respetando las rutas (`models/`, `controllers/`, `views/`, `lib/js/`, `uploads/`).
    `lib/js/servicios.js` es el que ya tienes: las vistas lo cargan desde `../../lib/js/servicios.js`.
 2. **Base de datos:** ejecuta `database/gastos.sql` en SQL Server (es re-ejecutable).
-3. **Conexión:** `GasDb` llama a tu función `conexion()`. Si no está definida, carga `models/conexion.php`
-   (plantilla; complétala o bórrala si usas la tuya). Debe devolver el enlace de `mssql_connect` con la BD seleccionada.
+3. **Conexión:** `GasDb` usa la función que ya tienes: `conectar()` de `models/funciones.php` (se configura en
+   `GasConfig::$FUNCIONES_CONEXION` y `GasConfig::ARCHIVO_CONEXION`). Si devuelve el enlace de `mssql_connect`, se usa;
+   si no devuelve nada, se usa la última conexión abierta.
 4. **Configuración** en `models/gastos/GasConfig.php`:
    - `$ROLES_ADMIN`: IDs de `T_ROLES` que pueden armar flujos y ver todas las solicitudes.
    - `DB_LATIN1`: `true` si la conexión trabaja en Latin1/cp1252 (lo normal con `Modern_Spanish_CI_AS`).
