@@ -9,8 +9,10 @@
    1. CONFIGURACION DE FLUJOS (lo que arma el administrador)
    ---------------------------------------------------------------------------- */
 
-/* Un flujo por (tipo, organizacion, oficina). NULL en organizacion/oficina = aplica a todas.
-   Al crear una solicitud se elige el flujo mas especifico: oficina > organizacion > general. */
+/* Un flujo = tipo + organizacion (1000, 2000...; NULL = todas). Vale para todas las oficinas
+   de la organizacion. Puede haber varias variantes activas del mismo tipo (p. ej. "Cotizacion"
+   y "Cotizacion - preliminar"): al crear la solicitud el usuario elige. Un flujo de una
+   organizacion con el MISMO NOMBRE que uno general lo reemplaza. OFICINA_VENTAS ya no se usa. */
 IF OBJECT_ID('dbo.T_GAS_FLUJOS') IS NULL
 CREATE TABLE dbo.T_GAS_FLUJOS (
   ID                 int IDENTITY(1,1) NOT NULL,
@@ -196,7 +198,7 @@ CREATE TABLE dbo.T_GAS_VIATICOS_DETALLE (
 GO
 
 /* ----------------------------------------------------------------------------
-   4. FLUJOS PREDETERMINADOS (generales, para todas las oficinas)
+   4. FLUJOS PREDETERMINADOS (generales, para todas las organizaciones)
    Los responsables se buscan por el titulo del rol (T_ROLES.TITULO). Si no hay
    coincidencia queda NULL y se asigna desde la pantalla "Flujos". Una solicitud
    no se puede crear mientras un paso de rol no tenga responsable.
@@ -206,7 +208,7 @@ DECLARE @rolCont int = (SELECT TOP 1 ID FROM dbo.T_ROLES WHERE TITULO LIKE '%CON
 DECLARE @rolTes  int = (SELECT TOP 1 ID FROM dbo.T_ROLES WHERE TITULO LIKE '%TESOR%' ORDER BY ID);
 DECLARE @f int;
 
-IF NOT EXISTS (SELECT 1 FROM dbo.T_GAS_FLUJOS WHERE TIPO='COTIZACION' AND ORGANIZACION_VENTA IS NULL AND OFICINA_VENTAS IS NULL)
+IF NOT EXISTS (SELECT 1 FROM dbo.T_GAS_FLUJOS WHERE TIPO='COTIZACION' AND ORGANIZACION_VENTA IS NULL AND NOMBRE='Cotizacion (general)')
 BEGIN
   INSERT dbo.T_GAS_FLUJOS (TIPO, NOMBRE) VALUES ('COTIZACION', 'Cotizacion (general)');
   SET @f = SCOPE_IDENTITY();
@@ -221,7 +223,7 @@ BEGIN
     (@f, 8, 'PAGAR',                'Pagar y montar comprobante',         'ROL',         @rolTes, 'SIEMPRE');
 END
 
-IF NOT EXISTS (SELECT 1 FROM dbo.T_GAS_FLUJOS WHERE TIPO='ANTICIPO' AND ORGANIZACION_VENTA IS NULL AND OFICINA_VENTAS IS NULL)
+IF NOT EXISTS (SELECT 1 FROM dbo.T_GAS_FLUJOS WHERE TIPO='ANTICIPO' AND ORGANIZACION_VENTA IS NULL AND NOMBRE='Anticipo (general)')
 BEGIN
   INSERT dbo.T_GAS_FLUJOS (TIPO, NOMBRE) VALUES ('ANTICIPO', 'Anticipo (general)');
   SET @f = SCOPE_IDENTITY();
@@ -234,7 +236,7 @@ BEGIN
     (@f, 6, 'PAGAR',                'Pagar y montar comprobante',         'ROL',         @rolTes, 'SIEMPRE');
 END
 
-IF NOT EXISTS (SELECT 1 FROM dbo.T_GAS_FLUJOS WHERE TIPO='FACTURA' AND ORGANIZACION_VENTA IS NULL AND OFICINA_VENTAS IS NULL)
+IF NOT EXISTS (SELECT 1 FROM dbo.T_GAS_FLUJOS WHERE TIPO='FACTURA' AND ORGANIZACION_VENTA IS NULL AND NOMBRE='Factura (general)')
 BEGIN
   INSERT dbo.T_GAS_FLUJOS (TIPO, NOMBRE) VALUES ('FACTURA', 'Factura (general)');
   SET @f = SCOPE_IDENTITY();
@@ -243,5 +245,19 @@ BEGIN
     (@f, 2, 'APROBAR',              'Aprobar preliminar',                 'ROL',         @rolGA,  'SIEMPRE'),
     (@f, 3, 'CONTABILIZAR',         'Contabilizar',                       'ROL',         @rolCont,'SIEMPRE'),
     (@f, 4, 'PAGAR',                'Pagar y montar comprobante',         'ROL',         @rolTes, 'SIEMPRE');
+END
+
+/* Variante de cotizacion: el proveedor entrega la factura fisica, el solicitante monta el
+   preliminar en SAP y registra sus datos aqui; luego paga tesoreria y contabiliza contabilidad. */
+IF NOT EXISTS (SELECT 1 FROM dbo.T_GAS_FLUJOS WHERE TIPO='COTIZACION' AND ORGANIZACION_VENTA IS NULL AND NOMBRE='Cotizacion - preliminar')
+BEGIN
+  INSERT dbo.T_GAS_FLUJOS (TIPO, NOMBRE) VALUES ('COTIZACION', 'Cotizacion - preliminar');
+  SET @f = SCOPE_IDENTITY();
+  INSERT dbo.T_GAS_FLUJO_PASOS (FLUJO_ID, ORDEN, ACCION, NOMBRE, RESPONSABLE_TIPO, ROL_ID, CONDICION) VALUES
+    (@f, 1, 'SUBIR_COTIZACIONES',   'Subir cotizaciones',                 'SOLICITANTE', NULL,    'SIEMPRE'),
+    (@f, 2, 'AUTORIZAR_COTIZACION', 'Autorizar cotizacion',               'ROL',         @rolGA,  'SIEMPRE'),
+    (@f, 3, 'MONTAR_PRELIMINAR',    'Montar preliminar (datos de SAP)',   'SOLICITANTE', NULL,    'SIEMPRE'),
+    (@f, 4, 'PAGAR',                'Pagar y montar comprobante',         'ROL',         @rolTes, 'SIEMPRE'),
+    (@f, 5, 'CONTABILIZAR',         'Contabilizar (en SAP)',              'ROL',         @rolCont,'SIEMPRE');
 END
 GO

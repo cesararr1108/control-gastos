@@ -13,7 +13,7 @@ if (!$GAS_ADMIN) {
   <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
     <div>
       <h1 class="text-xl font-bold text-slate-900">Flujos de autorización</h1>
-      <p class="text-sm text-slate-500">Arma los pasos, quién los ejecuta y cuándo aplican. Un flujo por tipo y oficina; el más específico gana (oficina &gt; organización &gt; general).</p>
+      <p class="text-sm text-slate-500">Arma los pasos, quién los ejecuta y cuándo aplican. Cada flujo aplica a una organización (1000, 2000…) o a todas, y vale para todas sus oficinas. Puedes tener varios del mismo tipo: al crear la solicitud el usuario elige cuál usar. Un flujo de una organización con el <b>mismo nombre</b> que uno general lo reemplaza.</p>
     </div>
     <button id="btnNuevoFlujo" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700">+ Nuevo flujo</button>
   </div>
@@ -37,7 +37,7 @@ if (!$GAS_ADMIN) {
       <input id="fNombre" maxlength="120" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"></div>
     <div><label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Tipo de flujo</label>
       <select id="fTipo" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"></select></div>
-    <div><label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Aplica a</label>
+    <div><label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Aplica a la organización</label>
       <select id="fAlcance" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"></select></div>
     <label class="flex items-end gap-2 pb-2 text-sm"><input id="fActivo" type="checkbox" class="h-4 w-4 text-indigo-600"> Flujo activo</label>
   </section>

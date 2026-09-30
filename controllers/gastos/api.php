@@ -42,6 +42,7 @@ $RUTAS = array(
     'catalogo.opciones'    => array('GasCatalogoController', 'opciones', 'POST', false),
     'catalogo.terceros'    => array('GasCatalogoController', 'terceros', 'POST', false),
     'catalogo.usuarios'    => array('GasCatalogoController', 'usuarios', 'POST', true),
+    'solicitudes.variantes' => array('GasSolicitudesController', 'variantes', 'POST', false),
     'solicitudes.crear'    => array('GasSolicitudesController', 'crear', 'POST', false),
     'solicitudes.listar'   => array('GasSolicitudesController', 'listar', 'POST', false),
     'solicitudes.obtener'  => array('GasSolicitudesController', 'obtener', 'POST', false),

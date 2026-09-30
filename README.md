@@ -1,7 +1,7 @@
 # Control de gastos
 
 Módulo para gestionar **cotizaciones, anticipos y facturas** con flujos de autorización configurables
-por organización u oficina. Solicitante → Gerencia administrativa → Contabilidad → Tesorería.
+por organización (1000, 2000…), con varias variantes por tipo. Solicitante → Gerencia administrativa → Contabilidad → Tesorería.
 
 - PHP 5.5 orientado a objetos, extensión `mssql_`, SQL Server 2019.
 - Interfaz con Tailwind CSS + JavaScript (jQuery/SweetAlert2, reutiliza `lib/js/servicios.js`).
@@ -34,7 +34,7 @@ tests/logica.php               Pruebas sin base de datos
 5. **Permisos:** el usuario del servidor web debe poder escribir en `uploads/gastos/`.
 6. **Login:** en `views/gastos/_inicio.php` ajusta `$LOGIN_URL`. El módulo lee las variables de sesión existentes
    (`ses_Id`, `ses_RolesId`, `ses_NumOrg`, `ses_OfcVentas`, `ses_DepId`, `ses_Usuario`).
-7. **Flujos:** entra a `views/gastos/flujos.php` y asigna el rol responsable de cada paso por oficina.
+7. **Flujos:** entra a `views/gastos/flujos.php` y asigna el rol responsable de cada paso (por flujo y organización).
    Hasta que cada paso de rol tenga responsable no se podrán crear solicitudes con ese flujo.
 
 Las vistas cargan Tailwind, jQuery y SweetAlert2 desde CDN. Si tu red no tiene internet, descárgalos y

@@ -9,16 +9,16 @@ class GasListasModel
         return GasDb::all('SELECT ID, TITULO FROM T_ROLES ORDER BY TITULO');
     }
 
-    /** Organizaciones y oficinas de venta para los flujos por sucursal. */
-    public static function oficinas()
+    /** Organizaciones de venta (1000, 2000…) para asignar flujos por organización. */
+    public static function organizaciones()
     {
-        $rows = GasDb::all('SELECT DISTINCT ORGANIZACION_VENTAS AS ORG, OFICINA_VENTAS AS OFI, DESCRIPCION
-                              FROM T_OFICINAS_VENTAS WHERE OFICINA_VENTAS IS NOT NULL ORDER BY ORG, OFI');
-        foreach ($rows as $i => $r) {
-            $rows[$i]['ORG'] = trim($r['ORG']);
-            $rows[$i]['OFI'] = trim($r['OFI']);
+        $rows = GasDb::all('SELECT DISTINCT LTRIM(RTRIM(ORGANIZACION_VENTAS)) AS ORG FROM T_OFICINAS_VENTAS
+                             WHERE ORGANIZACION_VENTAS IS NOT NULL ORDER BY ORG');
+        $out = array();
+        foreach ($rows as $r) {
+            $out[] = $r['ORG'];
         }
-        return $rows;
+        return $out;
     }
 
     /** Departamentos/procesos (T_CAL_PROCESOS) de la organización del usuario; si no hay, todos. */

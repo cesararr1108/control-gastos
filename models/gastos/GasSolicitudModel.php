@@ -23,19 +23,28 @@ class GasSolicitudModel
 
     /* ------------------------------------------------------------------ crear */
 
+    /** Flujos entre los que puede elegir el usuario para un tipo (según su organización). */
+    public static function variantes($tipo, $u)
+    {
+        if (!isset(GasCatalogo::tipos()[$tipo])) {
+            throw new GasError('Tipo de solicitud inválido.');
+        }
+        return GasFlujoModel::disponibles($tipo, $u['org']);
+    }
+
     /**
-     * Crea una solicitud del tipo indicado con el flujo que aplica a la organización/oficina
-     * del usuario y deja el primer paso en curso. Devuelve el ID.
+     * Crea una solicitud del tipo indicado con el flujo elegido (o el único disponible para la
+     * organización del usuario) y deja el primer paso en curso. Devuelve el ID.
      */
-    public static function crear($tipo, $u)
+    public static function crear($tipo, $u, $flujoId = null)
     {
         $tipos = GasCatalogo::tipos();
         if (!isset($tipos[$tipo])) {
             throw new GasError('Tipo de solicitud inválido.');
         }
-        $flujo = GasFlujoModel::resolver($tipo, $u['org'], $u['oficina']);
+        $flujo = GasFlujoModel::resolver($tipo, $u['org'], $flujoId);
         if (!$flujo) {
-            throw new GasError('No hay un flujo activo de ' . $tipos[$tipo]['nombre'] . ' para tu oficina. Pide al administrador que lo configure.');
+            throw new GasError('No hay un flujo activo de ' . $tipos[$tipo]['nombre'] . ' para tu organización. Pide al administrador que lo configure.');
         }
         foreach ($flujo['pasos'] as $p) {
             if (($p['RESPONSABLE_TIPO'] === 'ROL' && !$p['ROL_ID']) || ($p['RESPONSABLE_TIPO'] === 'USUARIO' && !$p['USUARIO_ID'])) {
@@ -94,6 +103,9 @@ class GasSolicitudModel
         $sol = GasDb::row("SELECT LTRIM(RTRIM(NOMBRES)) + ' ' + LTRIM(RTRIM(APELLIDOS)) AS N, EMAIL FROM T_USUARIOS WHERE ID = " . (int) $s['USUARIO_ID']);
         $s['SOLICITANTE']       = $sol ? $sol['N'] : '';
         $s['SOLICITANTE_EMAIL'] = $sol ? $sol['EMAIL'] : '';
+
+        $fn = GasDb::scalar('SELECT NOMBRE FROM T_GAS_FLUJOS WHERE ID = ' . GasDb::int($s['FLUJO_ID']));
+        $s['FLUJO_NOMBRE'] = $fn ? $fn : '';
 
         $ofi = GasDb::scalar('SELECT TOP 1 DESCRIPCION FROM T_OFICINAS_VENTAS WHERE OFICINA_VENTAS = ' . GasDb::str($s['OFICINA_VENTAS']));
         $s['OFICINA_NOMBRE'] = $ofi ? $ofi : '';

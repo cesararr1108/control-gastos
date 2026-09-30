@@ -4,10 +4,16 @@
  */
 class GasSolicitudesController
 {
-    /** Crea una solicitud del tipo indicado y devuelve su ID. */
+    /** Flujos disponibles para un tipo (para elegir al crear). */
+    public static function variantes($u, $in, $files)
+    {
+        return GasSolicitudModel::variantes(isset($in['tipo']) ? $in['tipo'] : '', $u);
+    }
+
+    /** Crea una solicitud del tipo indicado (con el flujo elegido, si hay varios) y devuelve su ID. */
     public static function crear($u, $in, $files)
     {
-        $id = GasSolicitudModel::crear(isset($in['tipo']) ? $in['tipo'] : '', $u);
+        $id = GasSolicitudModel::crear(isset($in['tipo']) ? $in['tipo'] : '', $u, isset($in['flujo_id']) ? (int) $in['flujo_id'] : null);
         return array('id' => $id);
     }
 

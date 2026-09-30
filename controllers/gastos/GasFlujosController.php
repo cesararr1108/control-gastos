@@ -13,7 +13,7 @@ class GasFlujosController
     public static function obtener($u, $in, $files)
     {
         if (empty($in['id'])) {
-            return array('ID' => 0, 'TIPO' => 'FACTURA', 'NOMBRE' => '', 'ORGANIZACION_VENTA' => '', 'OFICINA_VENTAS' => '', 'ACTIVO' => 1, 'pasos' => array());
+            return array('ID' => 0, 'TIPO' => 'FACTURA', 'NOMBRE' => '', 'ORGANIZACION_VENTA' => '', 'ACTIVO' => 1, 'pasos' => array());
         }
         $f = GasFlujoModel::obtener($in['id']);
         if (!$f) {

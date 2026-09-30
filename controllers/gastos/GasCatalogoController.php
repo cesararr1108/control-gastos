@@ -19,7 +19,7 @@ class GasCatalogoController
         );
         if ($out['esAdmin']) {
             $out['roles']    = GasListasModel::roles();
-            $out['oficinas'] = GasListasModel::oficinas();
+            $out['organizaciones'] = GasListasModel::organizaciones();
         }
         return $out;
     }

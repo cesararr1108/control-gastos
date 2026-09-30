@@ -1,7 +1,7 @@
 # Flujos del control de gastos
 
 Este documento describe cómo avanza una solicitud de gasto, quién participa en cada paso y
-cómo se configuran los flujos por oficina. Los flujos que aparecen aquí son los
+cómo se configuran los flujos por organización. Los flujos que aparecen aquí son los
 **predeterminados** que crea `database/gastos.sql`; cada uno se puede cambiar desde la
 pantalla **Flujos** sin tocar código.
 
@@ -14,7 +14,8 @@ pantalla **Flujos** sin tocar código.
 | **Acción** | Qué hace el paso (subir cotizaciones, aprobar, contabilizar…). Define el formulario que se muestra. |
 | **Responsable** | Quién ejecuta el paso: **el solicitante**, **un rol** (`T_ROLES`) o **un usuario específico**. |
 | **Condición** | Cuándo aplica el paso (siempre, solo si hay anticipo, solo si el anticipo es por viáticos…). Si no se cumple, el paso se **omite**. |
-| **Alcance** | El flujo aplica a todas las oficinas, a una organización o a una oficina. Gana el más específico: **oficina > organización > general**. |
+| **Alcance** | El flujo aplica a **una organización** (1000, 2000…) o a todas, y vale para todas las oficinas de esa organización. |
+| **Variante** | Puede haber varios flujos activos del mismo tipo (p. ej. «Cotización» y «Cotización - preliminar»). Al crear la solicitud el usuario **elige** cuál usar; si solo hay uno, se usa directo. Un flujo de una organización con el **mismo nombre** que uno general lo reemplaza para esa organización. |
 
 ### Roles que participan
 
@@ -25,7 +26,7 @@ pantalla **Flujos** sin tocar código.
 | **Contabilidad** | Contabiliza: monta el número de contabilización y, si aplica, la causación de compensación (consolidación anticipo vs. factura legalizada). |
 | **Tesorería** | Paga: monta el número de comprobante ZP, la fecha de pago y el comprobante en PDF. Cierra la solicitud. |
 
-> Los roles concretos (GA, Contabilidad, Tesorería) se asignan por oficina en **Flujos**.
+> Los roles concretos (GA, Contabilidad, Tesorería) se asignan en **Flujos**, por flujo y organización.
 > Al ejecutar `gastos.sql` se intentan enlazar por el título del rol (`GERENCIA…ADMIN`, `CONTAB`, `TESOR`).
 
 ### Estados
@@ -97,18 +98,37 @@ flowchart TD
     D["4. Tesorería<br/>Paga + comprobante ZP"] --> Z([Finalizada])
 ```
 
-## 5. Armar o cambiar un flujo por oficina
+### Variante: COTIZACIÓN - PRELIMINAR
+
+Para cuando, tras aprobar la cotización, el proveedor entrega la **factura física**: el solicitante monta el
+preliminar en SAP y registra sus datos aquí; después paga Tesorería y al final contabiliza Contabilidad en SAP.
+No pregunta por anticipo ni lleva aprobación de GA sobre el preliminar.
+
+```mermaid
+flowchart TD
+    A["1. Solicitante<br/>Sube 3 cotizaciones PDF"] --> B
+    B{"2. GA<br/>Autoriza cotización"}
+    B -- Rechaza --> X([Rechazada])
+    B -- Autoriza --> C
+    C["3. Solicitante<br/>Monta preliminar<br/>(datos de SAP + factura + tercero)"] --> D
+    D["4. Tesorería<br/>Paga + comprobante ZP"] --> E
+    E["5. Contabilidad<br/>Contabiliza (SAP)"] --> Z([Finalizada])
+```
+
+Viene creada por `gastos.sql` con el nombre «Cotizacion - preliminar» y se puede editar o desactivar en **Flujos**.
+
+## 5. Armar o cambiar un flujo
 
 En **Flujos** (solo roles administradores) se puede:
 
 1. Crear un flujo nuevo o editar uno existente.
-2. Elegir el **tipo** y el **alcance** (todas las oficinas, una organización o una oficina).
+2. Elegir el **tipo**, el **nombre** (identifica la variante) y la **organización** (1000, 2000 o todas).
 3. Agregar, quitar y **reordenar** pasos.
 4. Por paso: elegir la **acción**, ponerle nombre, decidir **quién lo ejecuta** (solicitante, rol o usuario) y **cuándo aplica**.
 
 Reglas:
 
-- Un solo flujo **activo** por combinación (tipo, organización, oficina).
+- El **nombre** no puede repetirse dentro del mismo tipo y organización. Puede haber varias variantes activas del mismo tipo.
 - El primer paso debe ser del solicitante (es quien arranca la solicitud).
 - Una solicitud **no se puede crear** si su flujo tiene pasos de rol/usuario sin responsable.
 - Al crear una solicitud, los pasos se **copian** (`T_GAS_SOLICITUD_PASOS`): cambiar un flujo después **no altera** las solicitudes que ya están en curso.
