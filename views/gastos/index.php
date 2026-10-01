@@ -15,9 +15,8 @@ $inputCls = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-s
   </button>
 </div>
 
-<!-- Tarjetas de resumen -->
-<p id="alcanceTarjetas" class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500"></p>
-<div id="tarjetas" class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7"></div>
+<!-- Resumen: una tarjeta grande (total de solicitudes) con las demás dentro -->
+<section id="tarjetas" class="mb-6 rounded-xl border border-slate-200 bg-white p-5"></section>
 
 <!-- Pestañas por vista -->
 <div id="tabs" class="mb-4 flex flex-wrap gap-1 border-b border-slate-200 text-sm font-semibold">
@@ -37,7 +36,7 @@ $inputCls = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-s
 </form>
 
 <!-- Filtros -->
-<form id="filtros" class="mb-4 grid gap-3 sm:grid-cols-5">
+<form id="filtros" class="mb-4 grid gap-3 sm:grid-cols-4">
   <input name="q" placeholder="Buscar por código, NIT, tercero, preliminar o paso" class="sm:col-span-2 <?php echo $inputCls; ?>">
   <select name="paso" id="filtroPaso" class="<?php echo $inputCls; ?>">
     <option value="">Cualquier paso actual</option>
@@ -47,13 +46,6 @@ $inputCls = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-s
     <option value="COTIZACION">Cotización</option>
     <option value="ANTICIPO">Anticipo</option>
     <option value="FACTURA">Factura</option>
-  </select>
-  <select name="estado" class="<?php echo $inputCls; ?>">
-    <option value="">Todos los estados</option>
-    <option value="EN_CURSO">En curso</option>
-    <option value="FINALIZADA">Finalizada</option>
-    <option value="RECHAZADA">Rechazada</option>
-    <option value="CANCELADA">Cancelada</option>
   </select>
 </form>
 

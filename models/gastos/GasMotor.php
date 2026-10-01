@@ -154,28 +154,47 @@ class GasMotor
        Reciben ($sol, $paso, $in, $files, $u) y devuelven array(decision, comentario?).
        ========================================================================= */
 
-    /** SUBIR_COTIZACIONES: 3 PDF + proceso + si requiere soporte de pago. */
+    /** SUBIR_COTIZACIONES: 1 a 3 PDF (proveedor y valor obligatorios por cada PDF) + proceso + si requiere soporte de pago. */
     private static function hSubirCotizaciones($sol, $paso, $in, $files, $u)
     {
         $proceso = self::proceso($in, true);
         $soporte = self::siNo($in, 'requiere_soporte', 'Indica si requiere soporte de pago.');
         $desc    = self::texto($in, 'descripcion', 500, 'Describe brevemente el gasto.');
 
-        $cots = isset($in['cot']) && is_array($in['cot']) ? $in['cot'] : array();
-        $ids  = array();
+        // Solo una cotización es obligatoria. Por cada PDF adjunto, el proveedor y el valor son obligatorios.
+        $cots  = isset($in['cot']) && is_array($in['cot']) ? $in['cot'] : array();
+        $datos = array();
         for ($n = 1; $n <= 3; $n++) {
-            $f = isset($files['cot_' . $n]) ? $files['cot_' . $n] : null;
+            $f    = isset($files['cot_' . $n]) ? $files['cot_' . $n] : null;
+            $hay  = $f && isset($f['error']) && $f['error'] !== UPLOAD_ERR_NO_FILE;
+            $c    = isset($cots[$n]) && is_array($cots[$n]) ? $cots[$n] : array();
+            $prov = isset($c['proveedor']) ? trim($c['proveedor']) : '';
+            $valor = isset($c['valor']) ? GasDb::aNumero($c['valor']) : 0;
+            if (!$hay) {
+                if ($prov !== '' || $valor > 0) {
+                    throw new GasError("Cotización $n: escribiste proveedor o valor pero no adjuntaste el PDF.");
+                }
+                continue;
+            }
+            if ($prov === '') {
+                throw new GasError("Cotización $n: el proveedor es obligatorio cuando adjuntas el archivo.");
+            }
+            if ($valor <= 0) {
+                throw new GasError("Cotización $n: el valor es obligatorio cuando adjuntas el archivo.");
+            }
             $g = GasArchivos::guardarPdf($f, "Cotización $n");
             self::$rutasNuevas[] = $g['ruta'];
-            $ids[$n] = self::registrarArchivo($sol['ID'], $paso['ORDEN'], 'COTIZACION', $g, $u);
+            $datos[$n] = array('proveedor' => $prov, 'valor' => $valor,
+                'archivo' => self::registrarArchivo($sol['ID'], $paso['ORDEN'], 'COTIZACION', $g, $u));
+        }
+        if (!$datos) {
+            throw new GasError('Adjunta al menos una cotización en PDF.');
         }
         // Si la solicitud fue devuelta para corrección, las cotizaciones anteriores se reemplazan.
         GasDb::query('DELETE FROM T_GAS_COTIZACIONES WHERE SOLICITUD_ID = ' . (int) $sol['ID']);
-        for ($n = 1; $n <= 3; $n++) {
-            $c = isset($cots[$n]) && is_array($cots[$n]) ? $cots[$n] : array();
+        foreach ($datos as $n => $d) {
             GasDb::query('INSERT INTO T_GAS_COTIZACIONES (SOLICITUD_ID, NUMERO, PROVEEDOR, VALOR, ARCHIVO_ID) VALUES ('
-                . (int) $sol['ID'] . ', ' . $n . ', ' . GasDb::str(isset($c['proveedor']) ? $c['proveedor'] : null, 150) . ', '
-                . GasDb::num(isset($c['valor']) ? $c['valor'] : null) . ', ' . $ids[$n] . ')');
+                . (int) $sol['ID'] . ', ' . $n . ', ' . GasDb::str($d['proveedor'], 150) . ', ' . GasDb::num($d['valor']) . ', ' . (int) $d['archivo'] . ')');
         }
         GasDb::query('UPDATE T_GAS_SOLICITUDES SET PROCESO_ID = ' . (int) $proceso['ID'] . ', PROCESO = ' . GasDb::str($proceso['PROCESO'], 100)
             . ', REQUIERE_SOPORTE_PAGO = ' . GasDb::bit($soporte) . ', DESCRIPCION = ' . GasDb::str($desc, 500) . ' WHERE ID = ' . (int) $sol['ID']);
@@ -434,7 +453,7 @@ class GasMotor
         $nombre = self::texto($in, 'tercero_nombre', 150, 'Indica la razón social del tercero.');
         $cel    = preg_replace('/\D/', '', isset($in['tercero_celular']) ? $in['tercero_celular'] : '');
         $mail   = isset($in['tercero_email']) ? trim($in['tercero_email']) : '';
-        $cargo  = self::texto($in, 'cargo', 80, 'Indica el cargo.');
+        $cargo  = isset($in['cargo']) ? trim($in['cargo']) : ''; // el cargo ya no se pide (solo va en el F-FR-023)
         $cc     = self::texto($in, 'centro_costos', 40, 'Indica el centro de costos.');
         if ($nit === '') {
             throw new GasError('Indica el NIT del tercero.');
