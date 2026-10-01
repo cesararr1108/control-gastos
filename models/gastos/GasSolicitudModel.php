@@ -171,9 +171,17 @@ class GasSolicitudModel
         }
     }
 
+    /** Pasos de aprobación que cualquier administrador puede ejecutar (si no es el solicitante). */
+    public static $ACCIONES_APROBACION = array('AUTORIZAR_COTIZACION', 'APROBAR');
+
     /** ¿El usuario debe ejecutar este paso? */
     public static function esResponsable($paso, $sol, $u)
     {
+        // Un administrador también puede aprobar/autorizar, salvo su propia solicitud.
+        if (isset($paso['ACCION']) && in_array($paso['ACCION'], self::$ACCIONES_APROBACION, true)
+            && GasSesion::esAdmin($u) && (int) $sol['USUARIO_ID'] !== (int) $u['id']) {
+            return true;
+        }
         switch ($paso['RESPONSABLE_TIPO']) {
             case 'SOLICITANTE': return (int) $sol['USUARIO_ID'] === (int) $u['id'];
             case 'ROL':         return $paso['ROL_ID'] !== null && (int) $paso['ROL_ID'] === (int) $u['rolId'];
@@ -264,7 +272,8 @@ class GasSolicitudModel
                 $w[] = "s.ESTADO = 'EN_CURSO' AND ps.ID IS NOT NULL AND ("
                      . "(ps.RESPONSABLE_TIPO = 'SOLICITANTE' AND s.USUARIO_ID = $uid)"
                      . " OR (ps.RESPONSABLE_TIPO = 'ROL' AND ps.ROL_ID = $rid)"
-                     . " OR (ps.RESPONSABLE_TIPO = 'USUARIO' AND ps.USUARIO_ID = $uid))";
+                     . " OR (ps.RESPONSABLE_TIPO = 'USUARIO' AND ps.USUARIO_ID = $uid)"
+                     . (GasSesion::esAdmin($u) ? " OR (ps.ACCION IN ('AUTORIZAR_COTIZACION','APROBAR') AND s.USUARIO_ID <> $uid)" : '') . ')';
                 break;
             case 'historial':
             case 'todas':
