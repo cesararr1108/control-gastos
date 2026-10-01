@@ -107,7 +107,7 @@ flowchart TD
   - la autorización es obligatoria.
 
   El total se recalcula en el servidor.
-- **Legalización (viáticos):** en el paso del preliminar, en lugar de la factura se diligencia el **formato F-FR-024**, también en un modal con el diseño del formato:
+- **Legalización (viáticos):** en el paso del preliminar, en lugar de la factura y el número de preliminar se diligencia el **formato F-FR-024**, también en un modal con el diseño del formato:
   - filas con fecha, centro de costo, doc y ciudad y detalles;
   - un valor en una o más columnas (Transp, Bus/taxis, Hotel, Aliment, Atención, Gasolina, Servicios, Otros) y el total diario de la fila;
   - todos los soportes, incluido el comprobante de reintegro si lo hay, se suben en **un solo PDF**.

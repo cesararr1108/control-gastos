@@ -511,8 +511,8 @@ class GasMotor
      * Cada fila del formato: fecha, centro de costo, doc, ciudad y detalles y un valor en una o más
      * columnas (Transp, Bus/taxis, Hotel, Aliment, Atención, Gasolina, Servicios, Otros). Cada valor
      * se guarda como una línea de T_GAS_LEGALIZACION_DETALLE (TIPO_GASTO = columna).
-     * Validaciones: fecha dentro del viaje (se admite un día antes y uno después) y no futura,
-     * detalle obligatorio y al menos un valor > 0 por fila.
+     * Validaciones: la fecha es la del consumo (no posterior a hoy), detalle obligatorio y al menos
+     * un valor > 0 por fila. No se pide número de preliminar.
      * Retefuente: GasConfig::RETEFUENTE_TASA a cada valor de hotel/alimentación mayor al tope.
      * Total cuenta de gastos = suma - retefuente. Saldo = suma recibida (anticipo) - total cuenta:
      *   > 0 a favor de la empresa (el empleado reintegra; el comprobante va en el PDF de soportes)
@@ -520,11 +520,10 @@ class GasMotor
      */
     private static function registrarLegalizacion($sol, $paso, $in, $files, $u)
     {
-        $num   = self::texto($in, 'num_preliminar', 30, 'Indica el número de preliminar.');
+        // En la legalización no se pide número de preliminar: el soporte es el formato + el PDF.
+        $num   = isset($in['num_preliminar']) ? trim($in['num_preliminar']) : '';
         $tipos = GasCatalogo::tiposGastoLegalizacion();
         $hoy   = date('Y-m-d');
-        $desde = !empty($sol['VIATICOS_FECHA_INICIO']) ? date('Y-m-d', strtotime($sol['VIATICOS_FECHA_INICIO'] . ' -1 day')) : null;
-        $hasta = !empty($sol['VIATICOS_FECHA_FIN']) ? date('Y-m-d', strtotime($sol['VIATICOS_FECHA_FIN'] . ' +1 day')) : null;
 
         $filas = isset($in['legal']) && is_array($in['legal']) ? $in['legal'] : array();
         $suma = 0.0;
@@ -551,12 +550,9 @@ class GasMotor
             if (GasDb::fecha($fecha) === 'NULL') {
                 throw new GasError("F-FR-024, fila $n: fecha inválida.");
             }
+            // Fecha de consumo del gasto: no puede ser posterior a hoy.
             if ($fecha > $hoy) {
-                throw new GasError("F-FR-024, fila $n: la fecha no puede ser futura.");
-            }
-            if (($desde && $fecha < $desde) || ($hasta && $fecha > $hasta)) {
-                throw new GasError("F-FR-024, fila $n: la fecha debe estar dentro del viaje ("
-                    . $sol['VIATICOS_FECHA_INICIO'] . ' a ' . $sol['VIATICOS_FECHA_FIN'] . ', se admite un día antes y uno después).');
+                throw new GasError("F-FR-024, fila $n: la fecha es la del consumo y no puede ser posterior a hoy.");
             }
             if ($det === '') {
                 throw new GasError("F-FR-024, fila $n: escribe la ciudad y el detalle.");
