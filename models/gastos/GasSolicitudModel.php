@@ -296,10 +296,12 @@ class GasSolicitudModel
             "SELECT s.ID, s.CODIGO, s.TIPO, s.ESTADO, s.PROCESO, s.TERCERO_NIT, s.TERCERO_NOMBRE,
                     COALESCE(s.VALOR_TOTAL, s.VALOR_ANTICIPO) AS VALOR,
                     CONVERT(varchar(19), s.FECHA_CREACION, 120) AS FECHA_CREACION,
+                    CONVERT(varchar(19), s.FECHA_MODIFICACION, 120) AS FECHA_MODIFICACION,
+                    DATEDIFF(MINUTE, s.FECHA_MODIFICACION, GETDATE()) AS MIN_DESDE_CAMBIO,
                     LTRIM(RTRIM(su.NOMBRES)) + ' ' + LTRIM(RTRIM(su.APELLIDOS)) AS SOLICITANTE,
                     ps.NOMBRE AS PASO_NOMBRE, ps.RESPONSABLE_TIPO AS PASO_RESP_TIPO, pr.TITULO AS PASO_ROL
                $from WHERE $where
-              ORDER BY s.ID DESC
+              ORDER BY " . ($vista === 'pendientes' ? 's.FECHA_MODIFICACION DESC, ' : '') . "s.ID DESC
              OFFSET " . (($pagina - 1) * $porPagina) . " ROWS FETCH NEXT $porPagina ROWS ONLY"
         );
         return array('filas' => $rows, 'total' => $total, 'pagina' => $pagina, 'paginas' => $paginas, 'porPagina' => $porPagina);
