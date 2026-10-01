@@ -20,6 +20,7 @@ class GasCatalogoController
             'retefuente' => array('tope' => GasConfig::RETEFUENTE_TOPE, 'tasa' => GasConfig::RETEFUENTE_TASA, 'tipos' => GasConfig::$RETEFUENTE_TIPOS),
             'diasLegalizacion' => GasConfig::DIAS_LEGALIZACION,
             'yo'         => GasListasModel::usuario($u['id']),
+            'topes'      => GasListasModel::topesViaticos($u['rolId']),
             'procesos'   => GasListasModel::procesos($u['org']),
             'pasosActuales' => GasSolicitudModel::pasosActuales(),
         );

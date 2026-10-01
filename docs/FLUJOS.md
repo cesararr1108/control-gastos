@@ -124,6 +124,10 @@ flowchart TD
   Si pasaron más de 30 días desde el regreso, se muestra una advertencia.
 
   Solo el solicitante diligencia estos formatos. Gerencia administrativa y los administradores los abren con **«Ver formato»** en solo lectura y, si no aprueban, deben dejar la observación.
+- **Topes de viáticos por nivel:** el nivel del solicitante sale de `T_ROLES_GASTOS_INFO` (1 gerentes de proceso, 2 coordinadores, 3 auxiliares). Los valores (desayuno, almuerzo, cena y tarifa única de hotel) están en `T_GAS_TOPES_VIATICOS`, por año. Los topes **advierten, no bloquean**:
+  - en el F-FR-023 se muestra la tabla del nivel y se avisa si la alimentación supera *días × tope diario*; si se presupuesta hospedaje, se recuerda que la empresa paga directamente los hoteles y se avisa si supera *noches × tarifa única*;
+  - en el F-FR-024 se avisa por cada día en que la alimentación supera el tope diario y por cada hotel sobre la tarifa por noche;
+  - Gerencia ve los mismos avisos en el detalle para aprobar o devolver.
 - **Preliminar con factura:** además de número, fecha, valor y factura en PDF, se indica si **el pago sale de un fondo** y de cuál (**Fondo Roma** o **Fondo proveedores**). Tesorería lo ve al pagar.
 
 Los valores (tope y tasa de retefuente, días de plazo) se configuran en `GasConfig`.

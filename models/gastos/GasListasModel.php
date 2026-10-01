@@ -68,6 +68,39 @@ class GasListasModel
                              FROM T_USUARIOS WHERE ID = " . (int) $id);
     }
 
+    /**
+     * Topes de viáticos del nivel de un rol (T_ROLES_GASTOS_INFO + T_GAS_TOPES_VIATICOS), del año
+     * más reciente que no sea posterior al actual. Devuelve null si el rol no tiene nivel o las
+     * tablas no existen (los topes son una ayuda: nunca deben romper la pantalla).
+     */
+    public static function topesViaticos($rolId)
+    {
+        try {
+            $nivel = GasDb::scalar('SELECT TOP 1 NIVEL FROM T_ROLES_GASTOS_INFO WHERE ROL = ' . (int) $rolId);
+            if ($nivel === null) {
+                return null;
+            }
+            $nivel = (int) $nivel;
+            $anio  = GasDb::scalar('SELECT MAX(ANIO) FROM T_GAS_TOPES_VIATICOS WHERE ANIO <= YEAR(GETDATE())');
+            if (!$anio) {
+                return null;
+            }
+            $rows = GasDb::all('SELECT NIVEL, CONCEPTO, VALOR FROM T_GAS_TOPES_VIATICOS WHERE ANIO = ' . (int) $anio
+                . ' AND NIVEL IN (0, ' . $nivel . ')');
+        } catch (Exception $e) {
+            error_log('[gastos] topes de viaticos: ' . $e->getMessage());
+            return null;
+        }
+        $niveles = GasCatalogo::nivelesGasto();
+        $t = array('nivel' => $nivel, 'nivelNombre' => isset($niveles[$nivel]) ? $niveles[$nivel] : 'Nivel ' . $nivel,
+                   'anio' => (int) $anio, 'DESAYUNO' => 0, 'ALMUERZO' => 0, 'CENA' => 0, 'HOTEL' => 0, 'HOTEL_DESAYUNO' => 0);
+        foreach ($rows as $r) {
+            $t[trim($r['CONCEPTO'])] = (float) $r['VALOR'];
+        }
+        $t['DIA'] = $t['DESAYUNO'] + $t['ALMUERZO'] + $t['CENA'];
+        return $t;
+    }
+
     /** Usuarios activos por login o nombre (para asignar un paso a una persona concreta). */
     public static function usuarios($q)
     {

@@ -135,6 +135,12 @@ class GasSolicitudModel
         $s['cotizaciones'] = GasDb::all(
             'SELECT NUMERO, PROVEEDOR, VALOR, ARCHIVO_ID FROM T_GAS_COTIZACIONES WHERE SOLICITUD_ID = ' . $sid . ' ORDER BY NUMERO'
         );
+        // Topes de viáticos del nivel del SOLICITANTE (para que Gerencia compare lo pedido).
+        $s['topes'] = null;
+        if (isset($s['TIPO_ANTICIPO']) && $s['TIPO_ANTICIPO'] === 'VIATICOS') {
+            $rolSol = GasDb::scalar('SELECT ROLES_ID FROM T_USUARIOS WHERE ID = ' . (int) $s['USUARIO_ID']);
+            $s['topes'] = $rolSol !== null ? GasListasModel::topesViaticos($rolSol) : null;
+        }
         $s['eventos'] = GasDb::all(
             "SELECT e.TIPO, e.PASO_ORDEN, e.PASO_NOMBRE, e.DESTINO_ORDEN, e.DESTINO_NOMBRE, e.COMENTARIO,
                     CONVERT(varchar(19), e.FECHA, 120) AS FECHA,

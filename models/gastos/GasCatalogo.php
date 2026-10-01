@@ -149,4 +149,10 @@ class GasCatalogo
             'FONDO_PROVEEDORES' => 'Fondo proveedores',
         );
     }
+
+    /** Niveles de T_ROLES_GASTOS_INFO. */
+    public static function nivelesGasto()
+    {
+        return array(1 => 'Gerentes de proceso', 2 => 'Coordinadores', 3 => 'Auxiliares');
+    }
 }
