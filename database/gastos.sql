@@ -101,6 +101,8 @@ CREATE TABLE dbo.T_GAS_SOLICITUDES (
 
   /* Numeros que montan los responsables */
   FECHA_FACTURA        date          NULL,
+  PAGO_FONDO           bit           NULL,                -- el pago del preliminar sale de un fondo
+  FONDO                varchar(20)   NULL,                -- FONDO_ROMA | FONDO_PROVEEDORES
   VALOR_LEGALIZADO     numeric(15,2) NULL,                -- total legalizado (anticipo por viaticos)
   RETEFUENTE_LEGALIZACION numeric(15,2) NULL,             -- retefuente descontada en la legalizacion (F-FR-024)
   SALDO_LEGALIZACION   numeric(15,2) NULL,                -- anticipo - legalizado: >0 a favor de la empresa, <0 a favor del tercero
@@ -126,6 +128,11 @@ IF COL_LENGTH('dbo.T_GAS_SOLICITUDES', 'VALOR_LEGALIZADO') IS NULL
   ALTER TABLE dbo.T_GAS_SOLICITUDES ADD VALOR_LEGALIZADO numeric(15,2) NULL;
 IF COL_LENGTH('dbo.T_GAS_SOLICITUDES', 'SALDO_LEGALIZACION') IS NULL
   ALTER TABLE dbo.T_GAS_SOLICITUDES ADD SALDO_LEGALIZACION numeric(15,2) NULL;
+/* Instalaciones anteriores: fondo del que sale el pago del preliminar. */
+IF COL_LENGTH('dbo.T_GAS_SOLICITUDES', 'PAGO_FONDO') IS NULL
+  ALTER TABLE dbo.T_GAS_SOLICITUDES ADD PAGO_FONDO bit NULL;
+IF COL_LENGTH('dbo.T_GAS_SOLICITUDES', 'FONDO') IS NULL
+  ALTER TABLE dbo.T_GAS_SOLICITUDES ADD FONDO varchar(20) NULL;
 IF COL_LENGTH('dbo.T_GAS_SOLICITUDES', 'RETEFUENTE_LEGALIZACION') IS NULL
   ALTER TABLE dbo.T_GAS_SOLICITUDES ADD RETEFUENTE_LEGALIZACION numeric(15,2) NULL;
 /* Formato F-FR-023 (solicitud de viaticos). */

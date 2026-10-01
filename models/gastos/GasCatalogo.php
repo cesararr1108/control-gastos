@@ -140,4 +140,13 @@ class GasCatalogo
             'OTROS'     => 'Otros',
         );
     }
+
+    /** Fondos de los que puede salir el pago de un preliminar con factura. */
+    public static function fondos()
+    {
+        return array(
+            'FONDO_ROMA'        => 'Fondo Roma',
+            'FONDO_PROVEEDORES' => 'Fondo proveedores',
+        );
+    }
 }

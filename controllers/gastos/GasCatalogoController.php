@@ -16,6 +16,7 @@ class GasCatalogoController
             'responsables' => GasCatalogo::responsables(),
             'conceptos'  => GasCatalogo::conceptosViaticos(),
             'tiposGasto' => GasCatalogo::tiposGastoLegalizacion(),
+            'fondos'     => GasCatalogo::fondos(),
             'retefuente' => array('tope' => GasConfig::RETEFUENTE_TOPE, 'tasa' => GasConfig::RETEFUENTE_TASA, 'tipos' => GasConfig::$RETEFUENTE_TIPOS),
             'diasLegalizacion' => GasConfig::DIAS_LEGALIZACION,
             'yo'         => GasListasModel::usuario($u['id']),

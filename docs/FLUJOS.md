@@ -93,36 +93,38 @@ flowchart TD
 ```
 
 - **Por factura:** el solicitante indica el **valor** del anticipo. Después debe montar el preliminar (pasos 3 y 4, condición `ANTICIPO_FACTURA`).
-- **Por viáticos:** diligencia el **formato F-FR-023 (solicitud de viáticos)**. Los datos de quien solicita se prellenan con los del usuario. El formato incluye:
-  - lugar, motivo, fecha de salida y fecha de regreso;
-  - solicitud de pasajes (ruta de salida y de regreso, aérea o terrestre);
-  - valor presupuestado por concepto: tiquetes aéreos y terrestres, taxis y buses, peajes, hospedaje, alimentación, fletes, viáticos admin. y otros;
-  - aceptación de la autorización de descuento (art. 150 y 151 CST).
+- **Por viáticos:** se diligencia el **formato F-FR-023 (solicitud de viáticos)**, que se abre en un **modal** con el diseño del formato impreso:
+  - fecha y dependencia;
+  - datos de quien solicita (prellenados con los del usuario);
+  - motivo de la solicitud y fechas de salida y de regreso;
+  - valor presupuestado por concepto y total solicitado;
+  - autorización de descuento (art. 150 y 151 CST).
 
   Validaciones:
   - la salida no puede ser anterior a hoy y el regreso no puede ser anterior a la salida;
-  - si hay tiquetes aéreos o terrestres debe haber una ruta de ese tipo;
   - «Otros» con valor exige decir cuál;
   - el total debe ser mayor que cero;
   - la autorización es obligatoria.
 
-  El total solicitado se recalcula en el servidor.
-- **Legalización (viáticos):** en el paso del preliminar, en lugar de la factura se diligencia el **formato F-FR-024**:
-  - una línea por gasto con fecha, centro de costo, doc, ciudad y detalles, tipo de gasto (Transp, Bus/taxis, Hotel, Aliment, Atención, Gasolina, Servicios u Otros) y valor;
+  El total se recalcula en el servidor.
+- **Legalización (viáticos):** en el paso del preliminar, en lugar de la factura se diligencia el **formato F-FR-024**, también en un modal con el diseño del formato:
+  - filas con fecha, centro de costo, doc y ciudad y detalles;
+  - un valor en una o más columnas (Transp, Bus/taxis, Hotel, Aliment, Atención, Gasolina, Servicios, Otros) y el total diario de la fila;
   - todos los soportes, incluido el comprobante de reintegro si lo hay, se suben en **un solo PDF**.
 
   El sistema calcula:
-  - **retefuente descontada:** 2,5 % de cada gasto de hotel o alimentación superior a $110.000;
+  - **retefuente descontada:** 2,5 % de cada valor de hotel o alimentación superior a $110.000;
   - **total cuenta de gastos** = suma − retefuente;
-  - **saldo A/F** = suma recibida − total cuenta de gastos. Si es **positivo**, el saldo es a favor de DF Roma (el empleado reintegra). Si es **negativo**, es a favor del empleado (se le paga la diferencia).
+  - **saldo A/F** = suma recibida − total cuenta de gastos. Si es positivo, el saldo es a favor de DF Roma; si es negativo, a favor del empleado.
 
   Validaciones:
-  - cada fecha debe estar dentro del viaje (se admite un día antes y uno después por traslados) y no puede ser futura;
-  - cada línea necesita detalle, tipo y valor mayor que cero.
+  - cada fecha debe estar dentro del viaje (se admite un día antes y uno después) y no puede ser futura;
+  - cada fila necesita detalle y al menos un valor.
 
   Si pasaron más de 30 días desde el regreso, se muestra una advertencia.
 
-  Solo el solicitante diligencia estos formatos. Gerencia administrativa y los administradores los ven en solo lectura y, si no aprueban, deben dejar la observación.
+  Solo el solicitante diligencia estos formatos. Gerencia administrativa y los administradores los abren con **«Ver formato»** en solo lectura y, si no aprueban, deben dejar la observación.
+- **Preliminar con factura:** además de número, fecha, valor y factura en PDF, se indica si **el pago sale de un fondo** y de cuál (**Fondo Roma** o **Fondo proveedores**). Tesorería lo ve al pagar.
 
 Los valores (tope y tasa de retefuente, días de plazo) se configuran en `GasConfig`.
 
