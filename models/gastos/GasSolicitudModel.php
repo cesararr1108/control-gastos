@@ -135,6 +135,13 @@ class GasSolicitudModel
         $s['cotizaciones'] = GasDb::all(
             'SELECT NUMERO, PROVEEDOR, VALOR, ARCHIVO_ID FROM T_GAS_COTIZACIONES WHERE SOLICITUD_ID = ' . $sid . ' ORDER BY NUMERO'
         );
+        $s['eventos'] = GasDb::all(
+            "SELECT e.TIPO, e.PASO_ORDEN, e.PASO_NOMBRE, e.DESTINO_ORDEN, e.DESTINO_NOMBRE, e.COMENTARIO,
+                    CONVERT(varchar(19), e.FECHA, 120) AS FECHA,
+                    LTRIM(RTRIM(u.NOMBRES)) + ' ' + LTRIM(RTRIM(u.APELLIDOS)) AS USUARIO
+               FROM T_GAS_SOLICITUD_EVENTOS e LEFT JOIN T_USUARIOS u ON u.ID = e.USUARIO_ID
+              WHERE e.SOLICITUD_ID = " . $sid . ' ORDER BY e.ID DESC'
+        );
         $s['legalizacion'] = GasDb::all(
             'SELECT CONVERT(varchar(10), FECHA, 120) AS FECHA, CENTRO_COSTO, NUM_DOCUMENTO, DETALLE, TIPO_GASTO, VALOR, RETEFUENTE
                FROM T_GAS_LEGALIZACION_DETALLE WHERE SOLICITUD_ID = ' . $sid . ' ORDER BY FECHA, ID'

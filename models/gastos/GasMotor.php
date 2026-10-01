@@ -51,7 +51,9 @@ class GasMotor
             $decision   = $r['decision'];
             $comentario = isset($r['comentario']) ? $r['comentario'] : null;
 
-            if ($decision === 'RECHAZADO') {
+            if ($decision === 'DEVUELTO') {
+                self::devolver($sol, $paso, $u, $comentario);
+            } elseif ($decision === 'RECHAZADO') {
                 GasDb::query("UPDATE T_GAS_SOLICITUD_PASOS SET ESTADO = 'RECHAZADO', DECISION = 'RECHAZADO', EJECUTADO_POR = " . (int) $u['id']
                     . ', COMENTARIO = ' . GasDb::str($comentario, 500) . ', FECHA_FIN = GETDATE() WHERE ID = ' . (int) $paso['ID']);
                 GasDb::query("UPDATE T_GAS_SOLICITUDES SET ESTADO = 'RECHAZADA', PASO_ACTUAL = NULL, MOTIVO_CIERRE = " . GasDb::str($comentario, 500)
@@ -69,6 +71,32 @@ class GasMotor
             GasArchivos::borrar(self::$rutasNuevas);
             throw $e;
         }
+    }
+
+    /**
+     * Devuelve la solicitud al último paso del solicitante para que corrija (p. ej. Gerencia no acepta
+     * un valor). Ese paso vuelve a quedar en curso con sus datos prellenados; los pasos posteriores
+     * (incluido el actual y los omitidos) vuelven a PENDIENTE y se re-evalúan al avanzar. Se deja
+     * constancia en T_GAS_SOLICITUD_EVENTOS con el comentario. Debe llamarse dentro de una transacción.
+     */
+    private static function devolver($sol, $paso, $u, $comentario)
+    {
+        $solId = (int) $sol['ID'];
+        $dest  = GasDb::row("SELECT TOP 1 ID, ORDEN, NOMBRE FROM T_GAS_SOLICITUD_PASOS
+                              WHERE SOLICITUD_ID = $solId AND ORDEN < " . (int) $paso['ORDEN'] . "
+                                AND ESTADO = 'COMPLETADO' AND RESPONSABLE_TIPO = 'SOLICITANTE' ORDER BY ORDEN DESC");
+        if (!$dest) {
+            throw new GasError('No hay un paso del solicitante al cual devolver la solicitud.');
+        }
+        GasDb::query("UPDATE T_GAS_SOLICITUD_PASOS SET ESTADO = 'PENDIENTE', EJECUTADO_POR = NULL, DECISION = NULL, COMENTARIO = NULL,
+                             FECHA_INICIO = NULL, FECHA_FIN = NULL
+                       WHERE SOLICITUD_ID = $solId AND ORDEN > " . (int) $dest['ORDEN'] . ' AND ORDEN <= ' . (int) $paso['ORDEN']);
+        GasDb::query("UPDATE T_GAS_SOLICITUD_PASOS SET ESTADO = 'ACTUAL', DECISION = NULL, FECHA_INICIO = GETDATE(), FECHA_FIN = NULL
+                       WHERE ID = " . (int) $dest['ID']);
+        GasDb::query('UPDATE T_GAS_SOLICITUDES SET PASO_ACTUAL = ' . (int) $dest['ORDEN'] . ', FECHA_MODIFICACION = GETDATE() WHERE ID = ' . $solId);
+        GasDb::query('INSERT INTO T_GAS_SOLICITUD_EVENTOS (SOLICITUD_ID, TIPO, PASO_ORDEN, PASO_NOMBRE, DESTINO_ORDEN, DESTINO_NOMBRE, USUARIO_ID, COMENTARIO) VALUES ('
+            . $solId . ", 'DEVUELTO', " . (int) $paso['ORDEN'] . ', ' . GasDb::str($paso['NOMBRE'], 120) . ', ' . (int) $dest['ORDEN'] . ', '
+            . GasDb::str($dest['NOMBRE'], 120) . ', ' . (int) $u['id'] . ', ' . GasDb::str($comentario, 500) . ')');
     }
 
     /** El solicitante cancela mientras la solicitud sigue en curso. */
@@ -141,6 +169,8 @@ class GasMotor
             self::$rutasNuevas[] = $g['ruta'];
             $ids[$n] = self::registrarArchivo($sol['ID'], $paso['ORDEN'], 'COTIZACION', $g, $u);
         }
+        // Si la solicitud fue devuelta para corrección, las cotizaciones anteriores se reemplazan.
+        GasDb::query('DELETE FROM T_GAS_COTIZACIONES WHERE SOLICITUD_ID = ' . (int) $sol['ID']);
         for ($n = 1; $n <= 3; $n++) {
             $c = isset($cots[$n]) && is_array($cots[$n]) ? $cots[$n] : array();
             GasDb::query('INSERT INTO T_GAS_COTIZACIONES (SOLICITUD_ID, NUMERO, PROVEEDOR, VALOR, ARCHIVO_ID) VALUES ('
@@ -155,10 +185,10 @@ class GasMotor
     /** AUTORIZAR_COTIZACION: elige 1 de las 3 y comenta, o rechaza. */
     private static function hAutorizarCotizacion($sol, $paso, $in, $files, $u)
     {
-        $aprueba    = self::decision($in);
+        $d          = self::decision($in);
         $comentario = self::texto($in, 'comentario', 500, 'El comentario es obligatorio.');
-        if (!$aprueba) {
-            return array('decision' => 'RECHAZADO', 'comentario' => $comentario);
+        if ($d !== 'APROBAR') {
+            return array('decision' => $d === 'DEVOLVER' ? 'DEVUELTO' : 'RECHAZADO', 'comentario' => $comentario);
         }
         $n = isset($in['cotizacion_elegida']) ? (int) $in['cotizacion_elegida'] : 0;
         $existe = GasDb::scalar('SELECT COUNT(*) FROM T_GAS_COTIZACIONES WHERE SOLICITUD_ID = ' . (int) $sol['ID'] . ' AND NUMERO = ' . $n);
@@ -303,12 +333,13 @@ class GasMotor
     /** APROBAR: aprueba o rechaza (anticipo o preliminar, según cómo se llame el paso). */
     private static function hAprobar($sol, $paso, $in, $files, $u)
     {
-        $aprueba = self::decision($in);
-        $com     = isset($in['comentario']) ? trim($in['comentario']) : '';
-        if (!$aprueba && $com === '') {
-            throw new GasError('Explica el motivo del rechazo.');
+        $d   = self::decision($in);
+        $com = isset($in['comentario']) ? trim($in['comentario']) : '';
+        if ($d !== 'APROBAR' && $com === '') {
+            throw new GasError($d === 'DEVOLVER' ? 'Explica qué debe corregir el solicitante.' : 'Explica el motivo del rechazo.');
         }
-        return array('decision' => $aprueba ? 'APROBADO' : 'RECHAZADO', 'comentario' => $com);
+        $map = array('APROBAR' => 'APROBADO', 'DEVOLVER' => 'DEVUELTO', 'RECHAZAR' => 'RECHAZADO');
+        return array('decision' => $map[$d], 'comentario' => $com);
     }
 
     /** CONTABILIZAR: número de contabilización y, opcional, causación de compensación. */
@@ -342,13 +373,14 @@ class GasMotor
        ========================================================================= */
 
     /** true = APROBAR, false = RECHAZAR. */
+    /** 'APROBAR' | 'DEVOLVER' (al solicitante para corrección) | 'RECHAZAR'. */
     private static function decision($in)
     {
         $d = isset($in['decision']) ? $in['decision'] : '';
-        if ($d !== 'APROBAR' && $d !== 'RECHAZAR') {
-            throw new GasError('Elige si apruebas o rechazas.');
+        if (!in_array($d, array('APROBAR', 'DEVOLVER', 'RECHAZAR'), true)) {
+            throw new GasError('Elige si apruebas, devuelves para corrección o rechazas.');
         }
-        return $d === 'APROBAR';
+        return $d;
     }
 
     private static function siNo($in, $campo, $mensaje)
