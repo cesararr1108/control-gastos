@@ -360,6 +360,21 @@ class GasSolicitudModel
             'porRol'     => GasDb::all("SELECT $rol AS ROL, COUNT(*) AS CANT, $valor AS VALOR $from $where GROUP BY $rol ORDER BY CANT DESC"),
             'porRolTipo' => GasDb::all("SELECT $rol AS ROL, s.TIPO, COUNT(*) AS CANT, $valor AS VALOR $from $where GROUP BY $rol, s.TIPO ORDER BY 1, 2"),
             'porEstado'  => GasDb::all("SELECT s.ESTADO, COUNT(*) AS CANT $from $where GROUP BY s.ESTADO"),
+            // Tiempo de respuesta: minutos entre que el paso quedó pendiente y quien lo ejecutó lo resolvió,
+            // agrupado por el rol de quien lo ejecutó (se excluyen los pasos que el sistema registró solo).
+            'tiempos'    => GasDb::all(
+                "SELECT COALESCE(er.TITULO, 'Sin rol') AS ROL, COUNT(*) AS PASOS,
+                        AVG(CAST(DATEDIFF(MINUTE, p.FECHA_INICIO, p.FECHA_FIN) AS float)) AS MIN_PROMEDIO,
+                        MAX(DATEDIFF(MINUTE, p.FECHA_INICIO, p.FECHA_FIN)) AS MIN_MAXIMO
+                   FROM T_GAS_SOLICITUDES s
+                   JOIN T_GAS_SOLICITUD_PASOS p ON p.SOLICITUD_ID = s.ID
+                   JOIN T_USUARIOS eu ON eu.ID = p.EJECUTADO_POR
+                   LEFT JOIN T_ROLES er ON er.ID = eu.ROLES_ID
+                  $where " . ($where ? 'AND' : 'WHERE') . " p.ESTADO IN ('COMPLETADO','RECHAZADO')
+                    AND p.FECHA_INICIO IS NOT NULL AND p.FECHA_FIN IS NOT NULL
+                    AND (p.COMENTARIO IS NULL OR p.COMENTARIO NOT LIKE 'Registrado al definir%')
+                  GROUP BY COALESCE(er.TITULO, 'Sin rol') ORDER BY MIN_PROMEDIO DESC"
+            ),
         );
     }
 
