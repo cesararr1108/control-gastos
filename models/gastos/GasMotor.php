@@ -201,11 +201,11 @@ class GasMotor
         return array('decision' => 'COMPLETADO');
     }
 
-    /** AUTORIZAR_COTIZACION: elige 1 de las 3 y comenta, o rechaza. */
+    /** AUTORIZAR_COTIZACION: elige 1 de las 3 (el comentario es opcional), o devuelve / rechaza. */
     private static function hAutorizarCotizacion($sol, $paso, $in, $files, $u)
     {
         $d          = self::decision($in);
-        $comentario = self::texto($in, 'comentario', 500, 'El comentario es obligatorio.');
+        $comentario = self::textoOpcional($in, 'comentario', 500);
         if ($d !== 'APROBAR') {
             return array('decision' => $d === 'DEVOLVER' ? 'DEVUELTO' : 'RECHAZADO', 'comentario' => $comentario);
         }
@@ -222,7 +222,7 @@ class GasMotor
      * DECISION_ANTICIPO (flujo de cotización): ¿necesita anticipo?
      *  - Sí: valor del anticipo + datos del tercero; sigue la aprobación del anticipo.
      *  - No (ya tiene el preliminar): se registra aquí mismo el preliminar (número, fecha y valor de la
-     *    factura, factura en PDF) y el paso «Montar preliminar» queda realizado, de modo que sigue la
+     *    factura, factura en PDF) y el paso «Legalización» queda realizado, de modo que sigue la
      *    aprobación del preliminar por GA. Los pasos de anticipo se omiten por su condición.
      */
     private static function hDecisionAnticipo($sol, $paso, $in, $files, $u)
@@ -239,13 +239,13 @@ class GasMotor
         GasDb::query('UPDATE T_GAS_SOLICITUDES SET REQUIERE_ANTICIPO = 0, TIPO_ANTICIPO = NULL, VALOR_ANTICIPO = NULL WHERE ID = ' . (int) $sol['ID']);
         self::registrarPreliminar($sol, $paso, $in, $files, $u, true); // aquí solo se adjunta la factura
 
-        // El paso "Montar preliminar" (si es del solicitante) ya quedó hecho: se marca completado para que no se repita.
+        // El paso "Legalización" (si es del solicitante) ya quedó hecho: se marca completado para que no se repita.
         $pendiente = GasDb::row("SELECT TOP 1 ID FROM T_GAS_SOLICITUD_PASOS
                                   WHERE SOLICITUD_ID = " . (int) $sol['ID'] . " AND ESTADO = 'PENDIENTE' AND ACCION = 'MONTAR_PRELIMINAR'
                                     AND RESPONSABLE_TIPO = 'SOLICITANTE' AND ORDEN > " . (int) $paso['ORDEN'] . ' ORDER BY ORDEN');
         if ($pendiente) {
             GasDb::query("UPDATE T_GAS_SOLICITUD_PASOS SET ESTADO = 'COMPLETADO', DECISION = 'COMPLETADO', EJECUTADO_POR = " . (int) $u['id']
-                . ", COMENTARIO = 'Registrado al definir que ya tenía el preliminar', FECHA_INICIO = GETDATE(), FECHA_FIN = GETDATE() WHERE ID = " . (int) $pendiente['ID']);
+                . ", COMENTARIO = 'Registrado al definir que iba a legalizar', FECHA_INICIO = GETDATE(), FECHA_FIN = GETDATE() WHERE ID = " . (int) $pendiente['ID']);
         }
         return array('decision' => 'COMPLETADO');
     }
@@ -283,8 +283,8 @@ class GasMotor
     }
 
     /**
-     * Registra el preliminar y la factura. Lo usan el paso «Montar preliminar» y la decisión
-     * «ya tengo el preliminar» (DECISION_ANTICIPO). $paso es el paso que se está ejecutando.
+     * Registra el preliminar y la factura. Lo usan el paso «Legalización» y la decisión
+     * «legalizar» (DECISION_ANTICIPO). $paso es el paso que se está ejecutando.
      * Con $soloFactura solo se recibe la factura en PDF (sin soporte de pago ni preliminar en PDF).
      */
     private static function registrarPreliminar($sol, $paso, $in, $files, $u, $soloFactura = false)
@@ -300,15 +300,15 @@ class GasMotor
         if (GasDb::fecha($fechaF) === 'NULL') {
             throw new GasError('Indica la fecha de la factura.');
         }
-        // ¿El pago sale de un fondo? (Fondo Roma / Fondo proveedores)
-        $sale = self::siNo($in, 'pago_fondo', 'Indica si el pago sale de un fondo.');
-        $fondo = null;
-        if ($sale) {
-            $fondos = GasCatalogo::fondos();
-            $fondo  = isset($in['fondo']) ? $in['fondo'] : '';
-            if (!isset($fondos[$fondo])) {
-                throw new GasError('Elige de qué fondo sale el pago.');
-            }
+        // ¿De dónde sale el pago? Roma (por defecto), Fondo o Nota; Fondo y Nota llevan su número.
+        $fondos = GasCatalogo::fondos();
+        $fondo  = isset($in['fondo']) && $in['fondo'] !== '' ? $in['fondo'] : 'ROMA';
+        if (!isset($fondos[$fondo])) {
+            throw new GasError('Elige de dónde sale el pago: Roma, Fondo o Nota.');
+        }
+        $fondoNum = null;
+        if (in_array($fondo, GasCatalogo::fondosConNumero(), true)) {
+            $fondoNum = self::texto($in, 'fondo_numero', 30, $fondo === 'NOTA' ? 'Indica el número de la nota.' : 'Indica el número del fondo.');
         }
         self::guardarTercero($sol['ID'], $in);
 
@@ -328,9 +328,10 @@ class GasMotor
             'factura_pdf'    => array('FACTURA', 'Factura (PDF)', true),
             'soporte_pago'   => array('SOPORTE_PAGO', 'Soporte de pago', $exigeSoporte),
             'preliminar_pdf' => array('PRELIMINAR', 'Preliminar (PDF)', false),
+            'contrato_pdf'   => array('CONTRATO', 'Contrato u otro soporte (PDF)', false), // para que GA contraste la factura con lo pactado
         );
         if ($soloFactura) {
-            $archivos = array('factura_pdf' => $archivos['factura_pdf']);
+            $archivos = array('factura_pdf' => $archivos['factura_pdf'], 'contrato_pdf' => $archivos['contrato_pdf']);
         }
         foreach ($archivos as $campo => $meta) {
             $f   = isset($files[$campo]) ? $files[$campo] : null;
@@ -345,7 +346,7 @@ class GasMotor
             }
         }
         GasDb::query('UPDATE T_GAS_SOLICITUDES SET NUM_PRELIMINAR = ' . GasDb::str($num, 30) . ', VALOR_TOTAL = ' . GasDb::num($valor)
-            . ', FECHA_FACTURA = ' . GasDb::fecha($fechaF) . ', PAGO_FONDO = ' . GasDb::bit($sale) . ', FONDO = ' . GasDb::str($fondo)
+            . ', FECHA_FACTURA = ' . GasDb::fecha($fechaF) . ', FONDO = ' . GasDb::str($fondo) . ', FONDO_NUMERO = ' . GasDb::str($fondoNum, 30)
             . ' WHERE ID = ' . (int) $sol['ID']);
     }
 
@@ -353,22 +354,58 @@ class GasMotor
     private static function hAprobar($sol, $paso, $in, $files, $u)
     {
         $d   = self::decision($in);
-        $com = isset($in['comentario']) ? trim($in['comentario']) : '';
-        if ($d !== 'APROBAR' && $com === '') {
-            throw new GasError($d === 'DEVOLVER' ? 'Explica qué debe corregir el solicitante.' : 'Explica el motivo del rechazo.');
-        }
+        $com = self::textoOpcional($in, 'comentario', 500); // el comentario es opcional en todas las decisiones
         $map = array('APROBAR' => 'APROBADO', 'DEVOLVER' => 'DEVUELTO', 'RECHAZAR' => 'RECHAZADO');
         return array('decision' => $map[$d], 'comentario' => $com);
     }
 
-    /** CONTABILIZAR: número de contabilización y, opcional, causación de compensación. */
+    /**
+     * CONTABILIZAR. Primera vez: número de contabilización (empieza por 19, máx. 10 dígitos) y, si el
+     * flujo lo junta, la compensación opcional. Si la solicitud ya tiene número de contabilización
+     * (p. ej. el del anticipo), este paso es la COMPENSACIÓN: el número de compensación es obligatorio
+     * y el formulario lo trae por defecto con el de contabilización. Puede adjuntar un archivo o
+     * una imagen pegada (pantallazo).
+     */
     private static function hContabilizar($sol, $paso, $in, $files, $u)
     {
-        $num  = self::texto($in, 'num_contabilizacion', 30, 'Indica el número de contabilización.');
         $comp = isset($in['num_compensacion']) ? trim($in['num_compensacion']) : '';
+        if (!empty($sol['NUM_CONTABILIZACION'])) {
+            if ($comp === '') {
+                throw new GasError('Indica el número de compensación.');
+            }
+            $num = $sol['NUM_CONTABILIZACION'];
+        } else {
+            $num = self::numeroContabilizacion($in);
+        }
+        self::guardarSoporteOpcional($sol, $paso, $files, 'soporte', 'SOPORTE_CONTAB', 'Soporte de la contabilización', $u);
         GasDb::query('UPDATE T_GAS_SOLICITUDES SET NUM_CONTABILIZACION = ' . GasDb::str($num, 30) . ', NUM_COMPENSACION = ' . GasDb::str($comp, 30)
             . ' WHERE ID = ' . (int) $sol['ID']);
-        return array('decision' => 'COMPLETADO', 'comentario' => isset($in['comentario']) ? trim($in['comentario']) : null);
+        return array('decision' => 'COMPLETADO', 'comentario' => self::textoOpcional($in, 'comentario', 500));
+    }
+
+    /** Número de contabilización: solo dígitos, empieza por 19 y tiene máximo 10. */
+    private static function numeroContabilizacion($in)
+    {
+        $num = isset($in['num_contabilizacion']) ? trim($in['num_contabilizacion']) : '';
+        if ($num === '') {
+            throw new GasError('Indica el número de contabilización.');
+        }
+        if (!preg_match('/^19[0-9]{0,8}$/', $num)) {
+            throw new GasError('El número de contabilización debe empezar por 19, ser solo dígitos y tener máximo 10.');
+        }
+        return $num;
+    }
+
+    /** Guarda un soporte (PDF o imagen) si vino; no hace nada si no se adjuntó. */
+    private static function guardarSoporteOpcional($sol, $paso, $files, $campo, $categoria, $etiqueta, $u)
+    {
+        $f = isset($files[$campo]) ? $files[$campo] : null;
+        if (!$f || !isset($f['error']) || $f['error'] === UPLOAD_ERR_NO_FILE) {
+            return;
+        }
+        $g = GasArchivos::guardarSoporte($f, $etiqueta);
+        self::$rutasNuevas[] = $g['ruta'];
+        self::registrarArchivo($sol['ID'], $paso['ORDEN'], $categoria, $g, $u);
     }
 
     /** PAGAR: número de comprobante ZP, fecha de pago y comprobante en PDF. */
@@ -379,12 +416,12 @@ class GasMotor
         if (GasDb::fecha($fecha) === 'NULL') {
             throw new GasError('Indica una fecha de pago válida.');
         }
-        $g = GasArchivos::guardarPdf(isset($files['comprobante']) ? $files['comprobante'] : null, 'Comprobante de pago');
+        $g = GasArchivos::guardarSoporte(isset($files['comprobante']) ? $files['comprobante'] : null, 'Comprobante de pago'); // PDF o imagen pegada
         self::$rutasNuevas[] = $g['ruta'];
         self::registrarArchivo($sol['ID'], $paso['ORDEN'], 'COMPROBANTE', $g, $u);
         GasDb::query('UPDATE T_GAS_SOLICITUDES SET NUM_COMPROBANTE_ZP = ' . GasDb::str($zp, 30) . ', FECHA_PAGO = ' . GasDb::fecha($fecha)
             . ' WHERE ID = ' . (int) $sol['ID']);
-        return array('decision' => 'COMPLETADO', 'comentario' => isset($in['comentario']) ? trim($in['comentario']) : null);
+        return array('decision' => 'COMPLETADO', 'comentario' => self::textoOpcional($in, 'comentario', 500));
     }
 
     /* =========================================================================
@@ -416,6 +453,16 @@ class GasMotor
         $v = isset($in[$campo]) ? trim($in[$campo]) : '';
         if ($v === '') {
             throw new GasError($mensaje);
+        }
+        return function_exists('mb_substr') ? mb_substr($v, 0, $max, 'UTF-8') : substr($v, 0, $max);
+    }
+
+    /** Texto opcional: devuelve null si viene vacío. */
+    private static function textoOpcional($in, $campo, $max)
+    {
+        $v = isset($in[$campo]) ? trim($in[$campo]) : '';
+        if ($v === '') {
+            return null;
         }
         return function_exists('mb_substr') ? mb_substr($v, 0, $max, 'UTF-8') : substr($v, 0, $max);
     }
@@ -454,7 +501,10 @@ class GasMotor
         $cel    = preg_replace('/\D/', '', isset($in['tercero_celular']) ? $in['tercero_celular'] : '');
         $mail   = isset($in['tercero_email']) ? trim($in['tercero_email']) : '';
         $cargo  = isset($in['cargo']) ? trim($in['cargo']) : ''; // el cargo ya no se pide (solo va en el F-FR-023)
-        $cc     = self::texto($in, 'centro_costos', 40, 'Indica el centro de costos.');
+        $cc     = self::texto($in, 'centro_costos', 40, 'Selecciona el centro de costos.');
+        if (!GasListasModel::centroExiste($cc)) {
+            throw new GasError('El centro de costos no existe: selecciónalo de la lista.');
+        }
         if ($nit === '') {
             throw new GasError('Indica el NIT del tercero.');
         }
@@ -548,6 +598,7 @@ class GasMotor
         $suma = 0.0;
         $rete = 0.0;
         $sql  = array();
+        $ccOk = array();
         $n    = 0;
         foreach ($filas as $l) {
             if (!is_array($l)) {
@@ -578,7 +629,13 @@ class GasMotor
             }
             $cc = isset($l['centro_costo']) && trim($l['centro_costo']) !== '' ? trim($l['centro_costo']) : (string) $sol['CENTRO_COSTOS'];
             if ($cc === '') {
-                throw new GasError("F-FR-024, fila $n: indica el centro de costo.");
+                throw new GasError("F-FR-024, fila $n: selecciona el centro de costo.");
+            }
+            if (!isset($ccOk[$cc])) {
+                $ccOk[$cc] = GasListasModel::centroExiste($cc);
+            }
+            if (!$ccOk[$cc]) {
+                throw new GasError("F-FR-024, fila $n: el centro de costo «$cc» no existe.");
             }
             $totFila = 0.0;
             foreach ($tipos as $tipo => $nombreTipo) {
@@ -607,18 +664,27 @@ class GasMotor
             throw new GasError('F-FR-024: agrega al menos un gasto.');
         }
 
+        $totalCuenta = round($suma - $rete, 2);
+        $recibido    = isset($sol['VALOR_ANTICIPO']) ? (float) $sol['VALOR_ANTICIPO'] : 0.0;
+        $saldo       = round($recibido - $totalCuenta, 2);
+
         $g = GasArchivos::guardarPdf(isset($files['soportes_legalizacion']) ? $files['soportes_legalizacion'] : null,
             'Soportes de la legalización (un solo PDF)');
         self::$rutasNuevas[] = $g['ruta'];
         self::registrarArchivo($sol['ID'], $paso['ORDEN'], 'LEGALIZACION', $g, $u);
 
+        // Saldo a favor de la empresa: quien legaliza adjunta el comprobante de la transferencia (PDF o imagen).
+        if ($saldo > 0) {
+            $r = GasArchivos::guardarSoporte(isset($files['comprobante_reintegro']) ? $files['comprobante_reintegro'] : null,
+                'Comprobante de la transferencia a la empresa (hay saldo a favor de la empresa)');
+            self::$rutasNuevas[] = $r['ruta'];
+            self::registrarArchivo($sol['ID'], $paso['ORDEN'], 'REINTEGRO', $r, $u);
+        }
+
         GasDb::query('DELETE FROM T_GAS_LEGALIZACION_DETALLE WHERE SOLICITUD_ID = ' . (int) $sol['ID']);
         foreach ($sql as $q) {
             GasDb::query($q);
         }
-        $totalCuenta = round($suma - $rete, 2);
-        $recibido    = isset($sol['VALOR_ANTICIPO']) ? (float) $sol['VALOR_ANTICIPO'] : 0.0;
-        $saldo       = round($recibido - $totalCuenta, 2);
         GasDb::query('UPDATE T_GAS_SOLICITUDES SET NUM_PRELIMINAR = ' . GasDb::str($num, 30) . ', VALOR_TOTAL = ' . GasDb::num($totalCuenta)
             . ', VALOR_LEGALIZADO = ' . GasDb::num($totalCuenta) . ', RETEFUENTE_LEGALIZACION = ' . GasDb::num($rete)
             . ', SALDO_LEGALIZACION = ' . GasDb::num($saldo) . ' WHERE ID = ' . (int) $sol['ID']);

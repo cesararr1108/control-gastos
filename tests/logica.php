@@ -62,5 +62,20 @@ foreach (GasCatalogo::acciones() as $k => $a) {
     igual(true, count(array_diff($a['tipos'], $tipos)) === 0, "acción $k usa tipos válidos");
 }
 
+echo "Número de contabilización (19 + máx. 10 dígitos) y fondos\n";
+$m = new ReflectionMethod('GasMotor', 'numeroContabilizacion');
+$m->setAccessible(true);
+$valida = function ($n) use ($m) {
+    try { $m->invoke(null, array('num_contabilizacion' => $n)); return true; } catch (Exception $e) { return false; }
+};
+igual(true,  $valida('19'), 'contabilización «19»');
+igual(true,  $valida('1900000001'), 'contabilización de 10 dígitos');
+igual(false, $valida('19000000012'), 'contabilización de 11 dígitos');
+igual(false, $valida('2000000001'), 'contabilización que no empieza por 19');
+igual(false, $valida('19A00'), 'contabilización con letras');
+igual(false, $valida(''), 'contabilización vacía');
+igual(array('ROMA', 'FONDO', 'NOTA'), array_keys(GasCatalogo::fondos()), 'fondos: Roma, Fondo, Nota');
+igual(array('FONDO', 'NOTA'), GasCatalogo::fondosConNumero(), 'Fondo y Nota piden número');
+
 echo $fallos ? "\n$fallos prueba(s) fallaron\n" : "\nTodo bien\n";
 exit($fallos ? 1 : 0);

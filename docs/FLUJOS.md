@@ -165,13 +165,13 @@ Reglas:
 | Acción | Ejecuta (sugerido) | Qué registra |
 |---|---|---|
 | `SUBIR_COTIZACIONES` | Solicitante | 3 PDF, proceso, ¿requiere soporte de pago? |
-| `AUTORIZAR_COTIZACION` | Rol | Cotización elegida + comentario, o rechazo |
-| `DECISION_ANTICIPO` | Solicitante | ¿Anticipo? (valor) o, si ya tiene el preliminar, el preliminar y la factura (deja hecho «Montar preliminar») + tercero |
+| `AUTORIZAR_COTIZACION` | Rol (o cualquier administrador, salvo el solicitante) | Cotización elegida, o devolución / rechazo; el comentario es opcional |
+| `DECISION_ANTICIPO` | Solicitante | ¿Anticipo? (valor) o **Legalizar**: el preliminar, la factura y, si hay, el contrato (deja hecho el paso «Legalización»); tercero con centro de costos (select de `T_CENTROS_COSTOS`) |
 | `SOLICITAR_ANTICIPO` | Solicitante | Tipo (factura/viáticos), valor o formulario de viaje, tercero |
-| `MONTAR_PRELIMINAR` | Solicitante | Nº de preliminar, fecha y valor de la factura, tercero, factura PDF, soporte de pago |
-| `APROBAR` | Rol | Aprobar o rechazar con comentario (sirve para anticipos y preliminares) |
-| `CONTABILIZAR` | Rol | Nº de contabilización, causación de compensación |
-| `PAGAR` | Rol | Nº comprobante ZP, fecha de pago, comprobante PDF |
+| `MONTAR_PRELIMINAR` («Legalización») | Solicitante | Nº de preliminar, fecha y valor de la factura, de dónde sale el pago (**Roma** por defecto, **Fondo** o **Nota** con su número), tercero, factura PDF, contrato u otro documento (opcional), soporte de pago. En viáticos: F-FR-024 + PDF de soportes + comprobante de la transferencia si el saldo es a favor de la empresa |
+| `APROBAR` | Rol (o cualquier administrador, salvo el solicitante) | Aprobar, devolver o rechazar; el comentario es opcional (sirve para anticipos y legalizaciones) |
+| `CONTABILIZAR` | Rol | Nº de contabilización (empieza por 19, máx. 10 dígitos). Si la solicitud ya tiene número, el paso es la **compensación**: el nº de compensación viene por defecto con el de contabilización. Soporte opcional: archivo o pantallazo pegado (Ctrl+V) |
+| `PAGAR` | Rol | Nº comprobante ZP, fecha de pago, comprobante (PDF o imagen; se puede pegar un pantallazo con Ctrl+V) |
 
 ### Condiciones disponibles
 

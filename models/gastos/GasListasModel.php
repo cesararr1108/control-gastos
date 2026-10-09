@@ -21,6 +21,19 @@ class GasListasModel
         return $out;
     }
 
+    /** Centros de costos (T_CENTROS_COSTOS: CENTRO, DESCRIPCION) para el select. */
+    public static function centrosCostos()
+    {
+        return GasDb::all('SELECT LTRIM(RTRIM(CENTRO)) AS CENTRO, LTRIM(RTRIM(DESCRIPCION)) AS DESCRIPCION
+                             FROM T_CENTROS_COSTOS WHERE CENTRO IS NOT NULL ORDER BY CENTRO');
+    }
+
+    /** ¿Existe el centro de costos en T_CENTROS_COSTOS? */
+    public static function centroExiste($centro)
+    {
+        return (int) GasDb::scalar('SELECT COUNT(*) FROM T_CENTROS_COSTOS WHERE LTRIM(RTRIM(CENTRO)) = ' . GasDb::str($centro, 40)) > 0;
+    }
+
     /** Departamentos/procesos (T_CAL_PROCESOS) de la organización del usuario; si no hay, todos. */
     public static function procesos($org)
     {

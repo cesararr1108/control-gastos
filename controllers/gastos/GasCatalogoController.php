@@ -22,6 +22,7 @@ class GasCatalogoController
             'yo'         => GasListasModel::usuario($u['id']),
             'topes'      => GasListasModel::topesViaticos($u['rolId']),
             'procesos'   => GasListasModel::procesos($u['org']),
+            'centrosCostos' => GasListasModel::centrosCostos(),
             'pasosActuales' => GasSolicitudModel::pasosActuales(),
         );
         if ($out['esAdmin']) {

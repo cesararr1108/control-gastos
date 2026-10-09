@@ -38,12 +38,12 @@ class GasCatalogo
             'AUTORIZAR_COTIZACION' => array(
                 'nombre' => 'Autorizar cotización', 'actor' => 'ROL', 'decide' => true,
                 'tipos'  => array(self::TIPO_COTIZACION),
-                'ayuda'  => 'Elige una de las tres cotizaciones y deja un comentario (o rechaza).',
+                'ayuda'  => '',
             ),
             'DECISION_ANTICIPO' => array(
                 'nombre' => 'Definir anticipo y tercero', 'actor' => 'SOLICITANTE', 'decide' => false,
                 'tipos'  => array(self::TIPO_COTIZACION),
-                'ayuda'  => 'El solicitante indica si necesita anticipo (por cotización) o si ya tiene el preliminar. Con anticipo registra el valor; sin anticipo registra aquí mismo el preliminar y la factura (el paso «Montar preliminar» queda hecho).',
+                'ayuda'  => 'El solicitante indica si necesita anticipo (por cotización) o si va a legalizar. Con anticipo registra el valor; al legalizar registra aquí mismo el preliminar y la factura (el paso «Legalización» queda hecho).',
             ),
             'SOLICITAR_ANTICIPO' => array(
                 'nombre' => 'Solicitar anticipo', 'actor' => 'SOLICITANTE', 'decide' => false,
@@ -51,24 +51,24 @@ class GasCatalogo
                 'ayuda'  => 'Anticipo por factura (valor) o por viáticos (formulario de gastos de viaje), con datos del tercero.',
             ),
             'MONTAR_PRELIMINAR' => array(
-                'nombre' => 'Montar preliminar', 'actor' => 'SOLICITANTE', 'decide' => false,
+                'nombre' => 'Legalización', 'actor' => 'SOLICITANTE', 'decide' => false,
                 'tipos'  => array(self::TIPO_COTIZACION, self::TIPO_ANTICIPO, self::TIPO_FACTURA),
-                'ayuda'  => 'El solicitante registra el número de preliminar, la fecha y el valor de la factura y adjunta la factura en PDF. En un anticipo por viáticos, en su lugar diligencia la legalización de gastos y sube los soportes en un solo PDF; el sistema calcula el saldo.',
+                'ayuda'  => 'El solicitante legaliza el gasto: registra el número de preliminar, la fecha y el valor de la factura y adjunta la factura en PDF (y, si hay, el contrato u otro soporte). En un anticipo por viáticos, en su lugar diligencia la legalización de gastos y sube los soportes en un solo PDF; el sistema calcula el saldo.',
             ),
             'APROBAR' => array(
                 'nombre' => 'Aprobar / rechazar', 'actor' => 'ROL', 'decide' => true,
                 'tipos'  => array(self::TIPO_COTIZACION, self::TIPO_ANTICIPO, self::TIPO_FACTURA),
-                'ayuda'  => 'Aprueba o rechaza con comentario. Úsalo para aprobar anticipos o preliminares.',
+                'ayuda'  => 'Aprueba, devuelve o rechaza (el comentario es opcional). Úsalo para aprobar anticipos o legalizaciones.',
             ),
             'CONTABILIZAR' => array(
                 'nombre' => 'Contabilizar', 'actor' => 'ROL', 'decide' => false,
                 'tipos'  => array(self::TIPO_COTIZACION, self::TIPO_ANTICIPO, self::TIPO_FACTURA),
-                'ayuda'  => 'Contabilidad monta el número de contabilización y, si aplica, el de causación de compensación.',
+                'ayuda'  => 'Contabilidad monta el número de contabilización (empieza por 19, máx. 10 dígitos) y, en la compensación, el número de compensación; puede adjuntar un archivo o pegar un pantallazo (Ctrl+V).',
             ),
             'PAGAR' => array(
                 'nombre' => 'Pagar y montar comprobante', 'actor' => 'ROL', 'decide' => false,
                 'tipos'  => array(self::TIPO_COTIZACION, self::TIPO_ANTICIPO, self::TIPO_FACTURA),
-                'ayuda'  => 'Tesorería registra el número de comprobante ZP y sube el comprobante en PDF. Cierra la solicitud.',
+                'ayuda'  => 'Tesorería registra el número de comprobante ZP y sube el comprobante (PDF o imagen; también puede pegar un pantallazo con Ctrl+V). Cierra la solicitud.',
             ),
         );
     }
@@ -141,13 +141,23 @@ class GasCatalogo
         );
     }
 
-    /** Fondos de los que puede salir el pago de un preliminar con factura. */
+    /**
+     * De dónde sale el pago de una legalización con factura. «Roma» es el valor por defecto;
+     * «Fondo» y «Nota» exigen el número del fondo o de la nota.
+     */
     public static function fondos()
     {
         return array(
-            'FONDO_ROMA'        => 'Fondo Roma',
-            'FONDO_PROVEEDORES' => 'Fondo proveedores',
+            'ROMA'  => 'Roma',
+            'FONDO' => 'Fondo',
+            'NOTA'  => 'Nota',
         );
+    }
+
+    /** Fondos con número obligatorio. */
+    public static function fondosConNumero()
+    {
+        return array('FONDO', 'NOTA');
     }
 
     /** Niveles de T_ROLES_GASTOS_INFO. */
