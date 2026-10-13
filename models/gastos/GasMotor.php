@@ -212,7 +212,7 @@ class GasMotor
         $n = isset($in['cotizacion_elegida']) ? (int) $in['cotizacion_elegida'] : 0;
         $existe = GasDb::scalar('SELECT COUNT(*) FROM T_GAS_COTIZACIONES WHERE SOLICITUD_ID = ' . (int) $sol['ID'] . ' AND NUMERO = ' . $n);
         if ($n < 1 || $n > 3 || !$existe) {
-            throw new GasError('Elige una de las tres cotizaciones.');
+            throw new GasError('Selecciona una de las cotizaciones cargadas.');
         }
         GasDb::query('UPDATE T_GAS_SOLICITUDES SET COTIZACION_ELEGIDA = ' . $n . ' WHERE ID = ' . (int) $sol['ID']);
         return array('decision' => 'APROBADO', 'comentario' => $comentario);
@@ -300,6 +300,14 @@ class GasMotor
         if (GasDb::fecha($fechaF) === 'NULL') {
             throw new GasError('Indica la fecha de la factura.');
         }
+        if ($fechaF > date('Y-m-d')) {
+            throw new GasError('La fecha no puede ser posterior a hoy.');
+        }
+        // En cotización con anticipo el número es el de la factura; en los demás casos es un preliminar y empieza por 19.
+        $esFactura = isset($sol['TIPO_ANTICIPO']) && $sol['TIPO_ANTICIPO'] === 'COTIZACION' && !empty($sol['REQUIERE_ANTICIPO']);
+        if (!$esFactura && !preg_match('/^19[0-9]*$/', $num)) {
+            throw new GasError('El número de preliminar debe empezar por 19.');
+        }
         // ¿De dónde sale el pago? Roma (por defecto), Fondo o Nota; Fondo y Nota llevan su número.
         $fondos = GasCatalogo::fondos();
         $fondo  = isset($in['fondo']) && $in['fondo'] !== '' ? $in['fondo'] : 'ROMA';
@@ -330,9 +338,6 @@ class GasMotor
             'preliminar_pdf' => array('PRELIMINAR', 'Preliminar (PDF)', false),
             'contrato_pdf'   => array('CONTRATO', 'Contrato u otro soporte (PDF)', false), // para que GA contraste la factura con lo pactado
         );
-        if ($soloFactura) {
-            $archivos = array('factura_pdf' => $archivos['factura_pdf'], 'contrato_pdf' => $archivos['contrato_pdf']);
-        }
         foreach ($archivos as $campo => $meta) {
             $f   = isset($files[$campo]) ? $files[$campo] : null;
             $hay = $f && isset($f['error']) && $f['error'] !== UPLOAD_ERR_NO_FILE;
