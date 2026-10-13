@@ -331,10 +331,9 @@ class GasMotor
         }
 
         // La factura en PDF es obligatoria. El soporte de pago lo es solo si la cotización lo exigió.
-        $exigeSoporte = !empty($sol['REQUIERE_SOPORTE_PAGO']);
         $archivos = array(
             'factura_pdf'    => array('FACTURA', 'Factura (PDF)', true),
-            'soporte_pago'   => array('SOPORTE_PAGO', 'Soporte de pago', $exigeSoporte),
+            'soporte_pago'   => array('SOPORTE_PAGO', 'Soporte de pago', false),
             'preliminar_pdf' => array('PRELIMINAR', 'Preliminar (PDF)', false),
             'contrato_pdf'   => array('CONTRATO', 'Contrato u otro soporte (PDF)', false), // para que GA contraste la factura con lo pactado
         );
@@ -367,17 +366,14 @@ class GasMotor
     /**
      * CONTABILIZAR. Primera vez: número de contabilización (empieza por 19, máx. 10 dígitos) y, si el
      * flujo lo junta, la compensación opcional. Si la solicitud ya tiene número de contabilización
-     * (p. ej. el del anticipo), este paso es la COMPENSACIÓN: el número de compensación es obligatorio
-     * y el formulario lo trae por defecto con el de contabilización. Puede adjuntar un archivo o
+     * (p. ej. el del anticipo), este paso es la COMPENSACIÓN: el número de compensación es opcional
+     * y no se trae por defecto. Puede adjuntar un archivo o
      * una imagen pegada (pantallazo).
      */
     private static function hContabilizar($sol, $paso, $in, $files, $u)
     {
         $comp = isset($in['num_compensacion']) ? trim($in['num_compensacion']) : '';
         if (!empty($sol['NUM_CONTABILIZACION'])) {
-            if ($comp === '') {
-                throw new GasError('Indica el número de compensación.');
-            }
             $num = $sol['NUM_CONTABILIZACION'];
         } else {
             $num = self::numeroContabilizacion($in);
