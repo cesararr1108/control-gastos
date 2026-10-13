@@ -374,6 +374,8 @@ class GasSolicitudModel
         return array(
             'porTipo'    => GasDb::all("SELECT s.TIPO, COUNT(*) AS CANT, $valor AS VALOR $from $where GROUP BY s.TIPO ORDER BY CANT DESC"),
             'porRol'     => GasDb::all("SELECT $rol AS ROL, COUNT(*) AS CANT, $valor AS VALOR $from $where GROUP BY $rol ORDER BY CANT DESC"),
+            'porProceso' => GasDb::all("SELECT COALESCE(NULLIF(LTRIM(RTRIM(s.PROCESO)), ''), 'Sin proceso') AS PROCESO, COUNT(*) AS CANT, $valor AS VALOR
+                                         $from $where GROUP BY COALESCE(NULLIF(LTRIM(RTRIM(s.PROCESO)), ''), 'Sin proceso') ORDER BY CANT DESC"),
             'porRolTipo' => GasDb::all("SELECT $rol AS ROL, s.TIPO, COUNT(*) AS CANT, $valor AS VALOR $from $where GROUP BY $rol, s.TIPO ORDER BY 1, 2"),
             'porEstado'  => GasDb::all("SELECT s.ESTADO, COUNT(*) AS CANT $from $where GROUP BY s.ESTADO"),
             // Tiempo de respuesta: minutos entre que el paso quedó pendiente y quien lo ejecutó lo resolvió,
