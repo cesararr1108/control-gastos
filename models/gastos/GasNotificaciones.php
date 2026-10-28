@@ -58,7 +58,7 @@ class GasNotificaciones
             if (!$emails) {
                 return;
             }
-            self::enviar($emails, $titulo, $cuerpo, $solId, 'gas-' . (int) $solId . '-' . date('YmdHis') . '-' . mt_rand(100, 999));
+            self::enviar($emails, $titulo, $cuerpo, $solId, 'gas-' . (int) $solId . '-' . date('YmdHis') . '-' . mt_rand(100, 999), $sol['ORGANIZACION_VENTA']);
         } catch (Exception $e) {
             error_log('[gastos] notificación de la solicitud ' . (int) $solId . ': ' . $e->getMessage());
         }
@@ -93,19 +93,19 @@ class GasNotificaciones
     }
 
     /** POST /api/v1/notificaciones. */
-    private static function enviar($emails, $titulo, $cuerpo, $solId, $idempotencia)
+    private static function enviar($emails, $titulo, $cuerpo, $solId, $idempotencia, $org)
     {
         $notif = array('titulo' => self::corto($titulo, 150), 'cuerpo' => self::corto($cuerpo, 1000));
         $url = self::urlSolicitud($solId);
         if ($url !== '') {
             $notif['url'] = $url;
         }
-        $r = self::llamar('POST', '/api/v1/notificaciones', array(
+        $r = self::llamar('POST', '/api/v1/notificaciones', self::conOrganizacion(array(
             'destinatarios' => array('emails' => array_values($emails)),
             'notificacion'  => $notif,
             'data'          => array('tipo' => 'gastos', 'solicitud' => (string) (int) $solId),
             'prioridad'     => 'high',
-        ), $idempotencia);
+        ), $org), $idempotencia);
         if ($r['codigo'] >= 300) {
             error_log('[gastos] la API de notificaciones respondió ' . $r['codigo'] . ': ' . substr($r['cuerpo'], 0, 300));
         }
@@ -141,7 +141,7 @@ class GasNotificaciones
         if (preg_match('/^[A-Za-z0-9._@\-]{1,190}$/', (string) $u['login'])) {
             $datos['usuario'] = $u['login'];
         }
-        $r = self::llamar('POST', '/api/v1/tokens', $datos, null);
+        $r = self::llamar('POST', '/api/v1/tokens', self::conOrganizacion($datos, $u['org']), null);
         if ($r['codigo'] >= 300) {
             error_log('[gastos] registro de token rechazado (' . $r['codigo'] . '): ' . substr($r['cuerpo'], 0, 300));
             throw new GasError('No se pudieron activar las notificaciones en este dispositivo.');
@@ -174,11 +174,21 @@ class GasNotificaciones
             CURLOPT_CUSTOMREQUEST  => $metodo,
             CURLOPT_HTTPHEADER     => $h,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => GasConfig::PUSH_TIMEOUT,
+            CURLOPT_CONNECTTIMEOUT => min(10, GasConfig::PUSH_TIMEOUT),
             CURLOPT_TIMEOUT        => GasConfig::PUSH_TIMEOUT,
         );
+        // Igual que en tus otros sistemas: verificación TLS activa y TLS 1.2 (servidores con curl antiguo
+        // no lo negocian solos). Si el servidor no reconoce el certificado, configura GasConfig::PUSH_CAINFO.
+        $op[CURLOPT_SSL_VERIFYPEER] = true;
+        $op[CURLOPT_SSL_VERIFYHOST] = 2;
+        if (stripos(GasConfig::PUSH_URL, 'https://') === 0) {
+            $op[CURLOPT_SSLVERSION] = 6; // CURL_SSLVERSION_TLSv1_2
+        }
+        if (self::cfg('PUSH_CAINFO', '') !== '') {
+            $op[CURLOPT_CAINFO] = self::cfg('PUSH_CAINFO', '');
+        }
         if ($datos !== null) {
-            $op[CURLOPT_POSTFIELDS] = json_encode($datos);
+            $op[CURLOPT_POSTFIELDS] = json_encode($datos, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         }
         curl_setopt_array($ch, $op);
         $cuerpo = curl_exec($ch);
@@ -188,7 +198,26 @@ class GasNotificaciones
         return array('codigo' => $codigo === 0 ? 599 : $codigo, 'cuerpo' => $cuerpo === false ? $error : (string) $cuerpo, 'error' => $error);
     }
 
-    /** URL completa de un endpoint de la API. */
+    /**
+     * Agrega la organización (ses_NumOrg / ORGANIZACION_VENTA, 4 caracteres) como lo hace tu otro
+     * sistema: es obligatoria con llaves globales y con una llave de organización debe coincidir.
+     */
+    private static function conOrganizacion($datos, $org)
+    {
+        $org = strtoupper(trim((string) $org));
+        if (self::cfg('PUSH_ENVIAR_ORGANIZACION', true) && preg_match('/^[A-Z0-9]{4}$/', $org)) {
+            $datos['organizacion'] = $org;
+        }
+        return $datos;
+    }
+
+    /** Constante opcional de GasConfig (si tu GasConfig del servidor no la tiene, se usa el valor por defecto). */
+    private static function cfg($nombre, $defecto)
+    {
+        return defined('GasConfig::' . $nombre) ? constant('GasConfig::' . $nombre) : $defecto;
+    }
+
+        /** URL completa de un endpoint de la API. */
     private static function url($ruta)
     {
         return rtrim(GasConfig::PUSH_URL, '/') . $ruta;
@@ -223,6 +252,10 @@ class GasNotificaciones
                     . ' · ' . substr(strip_tags($h['cuerpo']), 0, 200) . ($h['codigo'] === 599 ? ' (sin respuesta: DNS, firewall, certificado SSL o tiempo de espera)' : ''));
             }
         }
+        $org = strtoupper(trim((string) $u['org']));
+        $r[] = array('Organización que se envía', !self::cfg('PUSH_ENVIAR_ORGANIZACION', true) ? 'aviso' : (preg_match('/^[A-Z0-9]{4}$/', $org) ? 'ok' : 'error'),
+            !self::cfg('PUSH_ENVIAR_ORGANIZACION', true) ? 'No se envía (PUSH_ENVIAR_ORGANIZACION = false): solo funciona con una llave atada a una organización.'
+                : (preg_match('/^[A-Z0-9]{4}$/', $org) ? $org . ' (ses_NumOrg; en los avisos de una solicitud, su organización de venta).' : 'Tu sesión no tiene una organización de 4 caracteres (ses_NumOrg).'));
         $email = self::emailUsuario($u);
         $r[] = array('Tu correo en T_USUARIOS', $email ? 'ok' : 'error',
             $email ? $email . ' — las notificaciones se envían a los dispositivos registrados con este correo en la API.' : 'Tu usuario no tiene un correo válido.');
@@ -247,17 +280,18 @@ class GasNotificaciones
         if (!$email) {
             throw new GasError('Tu usuario no tiene un correo válido en T_USUARIOS.');
         }
-        $r = self::llamar('POST', '/api/v1/notificaciones', array(
+        $r = self::llamar('POST', '/api/v1/notificaciones', self::conOrganizacion(array(
             'destinatarios' => array('emails' => array($email)),
             'notificacion'  => array('titulo' => 'Prueba · Control de gastos', 'cuerpo' => 'Si ves este mensaje, las notificaciones funcionan.'),
             'data'          => array('tipo' => 'gastos-prueba'),
             'prioridad'     => 'high',
-        ), 'gas-prueba-' . date('YmdHis') . '-' . mt_rand(100, 999));
+        ), $u['org']), 'gas-prueba-' . date('YmdHis') . '-' . mt_rand(100, 999));
         $json = json_decode($r['cuerpo'], true);
         $d = is_array($json) && isset($json['data']) ? $json['data'] : null;
         $explicacion = array(
+            400 => 'La API rechazó los datos. Si dice que la organización es obligatoria, la llave es global: revisa GasConfig::PUSH_ENVIAR_ORGANIZACION y la organización de tu sesión.',
             401 => 'La llave de API no es válida (revisa que esté completa y activa).',
-            403 => 'La llave no tiene el permiso «notificaciones», o la IP de este servidor no está en la lista permitida de la llave.',
+            403 => 'La llave no tiene el permiso «notificaciones», la IP de este servidor no está en la lista permitida de la llave, o la llave pertenece a otra organización distinta de la que se envía.',
             404 => 'La URL no es correcta: no se encontró /api/v1/notificaciones bajo PUSH_URL.',
             429 => 'Se superó el límite de envíos de la llave; espera un minuto.',
             599 => 'No hubo respuesta (DNS, firewall, certificado SSL o tiempo de espera).',

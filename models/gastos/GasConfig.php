@@ -80,9 +80,16 @@ class GasConfig
      * La llave de API (scope «notificaciones» y «tokens») se lee de la variable de entorno
      * GASTOS_PUSH_API_KEY; si no existe, de PUSH_API_KEY. Nunca la publiques en el repositorio.
      */
-    const PUSH_URL     = '';            // p. ej. 'https://push.pwmultiroma.com'
+    const PUSH_URL     = '';            // p. ej. 'https://api.pwmultiroma.com/push' (sin /api/v1)
     const PUSH_API_KEY = '';
-    const PUSH_TIMEOUT = 4;             // segundos: si la API no responde, el paso se registra igual
+    const PUSH_TIMEOUT = 15;            // segundos: si la API no responde, el paso se registra igual
+    /**
+     * true = se envía la organización (ses_NumOrg del usuario / organización de venta de la solicitud),
+     * como en tus otros sistemas. Es obligatoria si la llave es global.
+     */
+    const PUSH_ENVIAR_ORGANIZACION = true;
+    /** Ruta a cacert.pem si el servidor no reconoce el certificado de la API ('' = el del sistema). */
+    const PUSH_CAINFO  = '';
     /** URL pública (https) de views/gastos/, para que la notificación abra la solicitud. */
     const URL_MODULO   = '';            // p. ej. 'https://app.pwmultiroma.com/views/gastos/'
 
