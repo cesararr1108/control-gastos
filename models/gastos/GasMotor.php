@@ -698,6 +698,107 @@ class GasMotor
         GasDb::query('UPDATE T_GAS_SOLICITUDES SET NUM_PRELIMINAR = ' . GasDb::str($num, 30) . ', VALOR_TOTAL = ' . GasDb::num($totalCuenta)
             . ', VALOR_LEGALIZADO = ' . GasDb::num($totalCuenta) . ', RETEFUENTE_LEGALIZACION = ' . GasDb::num($rete)
             . ', SALDO_LEGALIZACION = ' . GasDb::num($saldo) . ' WHERE ID = ' . (int) $sol['ID']);
+        self::limpiarSoportesHuerfanos($sol['ID']);
+    }
+
+    /**
+     * Guarda el avance de la legalización de viáticos (F-FR-024) SIN completar el paso: la solicitud
+     * sigue en «Legalización» y no se avisa a nadie. Sirve para ir registrando los gastos (y la foto
+     * o PDF de cada uno) durante el viaje y enviarla a Gerencia administrativa al regresar.
+     *
+     * Es más flexible que el envío: cada fila con fecha se guarda aunque le falten el detalle o los
+     * valores; las validaciones completas (detalle, valor > 0, soportes, comprobante de reintegro)
+     * se aplican al enviar. El archivo general de soportes y el comprobante se adjuntan al enviar.
+     * Devuelve array(filas guardadas, filas descartadas por no tener fecha válida).
+     */
+    public static function guardarBorrador($solId, $u, $in, $files)
+    {
+        self::$rutasNuevas = array();
+        GasDb::begin();
+        try {
+            $sol = GasSolicitudModel::fila($solId, true);
+            if (!$sol || $sol['ESTADO'] !== 'EN_CURSO') {
+                throw new GasError('La solicitud ya no está en curso.');
+            }
+            $paso = GasDb::row("SELECT ID, ORDEN, ACCION, NOMBRE, RESPONSABLE_TIPO, ROL_ID, USUARIO_ID
+                                  FROM T_GAS_SOLICITUD_PASOS WHERE SOLICITUD_ID = " . (int) $solId . " AND ESTADO = 'ACTUAL'");
+            if (!$paso || $paso['ACCION'] !== 'MONTAR_PRELIMINAR' || $sol['TIPO_ANTICIPO'] !== 'VIATICOS') {
+                throw new GasError('Solo se puede guardar el avance de una legalización de viáticos en curso.');
+            }
+            if (!GasSolicitudModel::esResponsable($paso, $sol, $u)) {
+                throw new GasError('Este paso no te corresponde.');
+            }
+            $tipos = GasCatalogo::tiposGastoLegalizacion();
+            $hoy   = date('Y-m-d');
+            $filas = isset($in['legal']) && is_array($in['legal']) ? $in['legal'] : array();
+            $sql = array();
+            $guardadas = 0;
+            $descartadas = 0;
+            $ccOk = array();
+            foreach ($filas as $idx => $l) {
+                if (!is_array($l)) {
+                    continue;
+                }
+                $fecha = isset($l['fecha']) ? trim($l['fecha']) : '';
+                $det   = isset($l['detalle']) ? trim($l['detalle']) : '';
+                $valores = isset($l['v']) && is_array($l['v']) ? $l['v'] : array();
+                $n = $guardadas + $descartadas + 1;
+                if (GasDb::fecha($fecha) === 'NULL' || $fecha > $hoy) {
+                    // Sin fecha válida no se puede guardar la fila (salvo que esté totalmente vacía).
+                    $vacia = $det === '' && !self::hayArchivo($in, $files, 'legal_soporte_' . preg_replace('/\D/', '', (string) $idx));
+                    foreach ($valores as $v) {
+                        $vacia = $vacia && GasDb::aNumero($v) == 0;
+                    }
+                    if (!$vacia) {
+                        $descartadas++;
+                    }
+                    continue;
+                }
+                $cc = isset($l['centro_costo']) && trim($l['centro_costo']) !== '' ? trim($l['centro_costo']) : (string) $sol['CENTRO_COSTOS'];
+                if (!isset($ccOk[$cc])) {
+                    $ccOk[$cc] = $cc !== '' && GasListasModel::centroExiste($cc);
+                }
+                if (!$ccOk[$cc]) {
+                    $cc = (string) $sol['CENTRO_COSTOS'];
+                }
+                $archivo = self::soporteFila($sol, $paso, $in, $files, $idx, $l, $n, $u);
+                $base = 'INSERT INTO T_GAS_LEGALIZACION_DETALLE (SOLICITUD_ID, FECHA, CENTRO_COSTO, NUM_DOCUMENTO, DETALLE, TIPO_GASTO, VALOR, RETEFUENTE, ARCHIVO_ID) VALUES ('
+                    . (int) $sol['ID'] . ', ' . GasDb::fecha($fecha) . ', ' . GasDb::lit(substr($cc, 0, 40)) . ', '
+                    . GasDb::str(isset($l['documento']) ? $l['documento'] : null, 30) . ', ' . GasDb::lit(function_exists('mb_substr') ? mb_substr($det, 0, 200, 'UTF-8') : substr($det, 0, 200)) . ', ';
+                $hay = false;
+                foreach ($tipos as $tipo => $nombreTipo) {
+                    $valor = isset($valores[$tipo]) ? round(GasDb::aNumero($valores[$tipo]), 2) : 0;
+                    if ($valor <= 0) {
+                        continue;
+                    }
+                    $hay = true;
+                    $sql[] = $base . GasDb::str($tipo) . ', ' . GasDb::num($valor) . ', 0, ' . GasDb::int($archivo) . ')';
+                }
+                if (!$hay) {
+                    // Fila aún sin valor (p. ej. solo la foto del recibo): se conserva con valor 0.
+                    $sql[] = $base . "'OTROS', 0, 0, " . GasDb::int($archivo) . ')';
+                }
+                $guardadas++;
+            }
+            GasDb::query('DELETE FROM T_GAS_LEGALIZACION_DETALLE WHERE SOLICITUD_ID = ' . (int) $sol['ID']);
+            foreach ($sql as $q) {
+                GasDb::query($q);
+            }
+            self::limpiarSoportesHuerfanos($sol['ID']);
+            GasDb::commit();
+        } catch (Exception $e) {
+            GasDb::rollback();
+            GasArchivos::borrar(self::$rutasNuevas);
+            throw $e;
+        }
+        return array('guardadas' => $guardadas, 'descartadas' => $descartadas);
+    }
+
+    /** Quita el registro de los soportes de gasto que ya ninguna fila usa (se reemplazaron o se borró la fila). */
+    private static function limpiarSoportesHuerfanos($solId)
+    {
+        GasDb::query("DELETE FROM T_GAS_ARCHIVOS WHERE SOLICITUD_ID = " . (int) $solId . " AND CATEGORIA = 'SOPORTE_GASTO'
+                       AND ID NOT IN (SELECT ARCHIVO_ID FROM T_GAS_LEGALIZACION_DETALLE WHERE SOLICITUD_ID = " . (int) $solId . ' AND ARCHIVO_ID IS NOT NULL)');
     }
 
     /**
