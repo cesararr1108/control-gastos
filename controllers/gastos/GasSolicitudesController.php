@@ -53,6 +53,12 @@ class GasSolicitudesController
         return array('id' => (int) $in['id']);
     }
 
+    /** Guarda el avance de la legalización de viáticos sin enviarla (el paso no cambia). */
+    public static function borrador($u, $in, $files)
+    {
+        return GasMotor::guardarBorrador(isset($in['id']) ? $in['id'] : 0, $u, $in, $files);
+    }
+
     public static function cancelar($u, $in, $files)
     {
         GasMotor::cancelar(isset($in['id']) ? $in['id'] : 0, $u, isset($in['motivo']) ? $in['motivo'] : '');
