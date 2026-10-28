@@ -211,7 +211,7 @@ class GasMotor
         $n = isset($in['cotizacion_elegida']) ? (int) $in['cotizacion_elegida'] : 0;
         $existe = GasDb::scalar('SELECT COUNT(*) FROM T_GAS_COTIZACIONES WHERE SOLICITUD_ID = ' . (int) $sol['ID'] . ' AND NUMERO = ' . $n);
         if ($n < 1 || $n > 3 || !$existe) {
-            throw new GasError('Elige una de las tres cotizaciones.');
+            throw new GasError('Selecciona una de las cotizaciones cargadas.');
         }
         GasDb::query('UPDATE T_GAS_SOLICITUDES SET COTIZACION_ELEGIDA = ' . $n . ' WHERE ID = ' . (int) $sol['ID']);
         return array('decision' => 'APROBADO', 'comentario' => $comentario);
@@ -299,6 +299,14 @@ class GasMotor
         if (GasDb::fecha($fechaF) === 'NULL') {
             throw new GasError('Indica la fecha de la factura.');
         }
+        if ($fechaF > date('Y-m-d')) {
+            throw new GasError('La fecha no puede ser posterior a hoy.');
+        }
+        // En cotización con anticipo el número es el de la factura; en los demás casos es un preliminar y empieza por 19.
+        $esFactura = isset($sol['TIPO_ANTICIPO']) && $sol['TIPO_ANTICIPO'] === 'COTIZACION' && !empty($sol['REQUIERE_ANTICIPO']);
+        if (!$esFactura && !preg_match('/^19[0-9]*$/', $num)) {
+            throw new GasError('El número de preliminar debe empezar por 19.');
+        }
         // ¿De dónde sale el pago? Roma (por defecto), Fondo, Nota o Tarjeta de crédito; los tres últimos llevan su número.
         $fondos = GasCatalogo::fondos();
         $fondo  = isset($in['fondo']) && $in['fondo'] !== '' ? $in['fondo'] : 'ROMA';
@@ -327,18 +335,14 @@ class GasMotor
             GasDb::query('UPDATE T_GAS_SOLICITUDES SET DESCRIPCION = ' . GasDb::str($in['descripcion'], 500) . ' WHERE ID = ' . (int) $sol['ID']);
         }
 
-        // La factura en PDF es obligatoria. El soporte de pago lo es solo si la cotización lo exigió.
-        // El soporte de pago y el preliminar (soportes 3 y 4) aceptan PDF, imagen, Excel o Word.
-        $exigeSoporte = !empty($sol['REQUIERE_SOPORTE_PAGO']);
+        // La factura en PDF es obligatoria.
+        // El soporte de pago y el preliminar (soportes 3 y 4) son opcionales y aceptan PDF, imagen, Excel o Word.
         $archivos = array(
             'factura_pdf'    => array('FACTURA', 'la factura (PDF)', true, 'pdf'),
-            'soporte_pago'   => array('SOPORTE_PAGO', 'el soporte de pago (esta solicitud lo requiere)', $exigeSoporte, 'documento'),
+            'soporte_pago'   => array('SOPORTE_PAGO', 'el soporte de pago', false, 'documento'),
             'preliminar_pdf' => array('PRELIMINAR', 'el preliminar', false, 'documento'),
             'contrato_pdf'   => array('CONTRATO', 'el contrato u otro soporte (PDF)', false, 'pdf'), // para que GA contraste la factura con lo pactado
         );
-        if ($soloFactura) {
-            $archivos = array('factura_pdf' => $archivos['factura_pdf'], 'contrato_pdf' => $archivos['contrato_pdf']);
-        }
         foreach ($archivos as $campo => $meta) {
             self::guardarArchivo($sol, $paso, $in, $files, $campo, $meta[0], $meta[1], $meta[3], $meta[2], $u);
         }
@@ -359,17 +363,14 @@ class GasMotor
     /**
      * CONTABILIZAR. Primera vez: número de contabilización (empieza por 19, máx. 10 dígitos) y, si el
      * flujo lo junta, la compensación opcional. Si la solicitud ya tiene número de contabilización
-     * (p. ej. el del anticipo), este paso es la COMPENSACIÓN: el número de compensación es obligatorio
-     * y el formulario lo trae por defecto con el de contabilización. Puede adjuntar un archivo o
+     * (p. ej. el del anticipo), este paso es la COMPENSACIÓN: el número de compensación es opcional
+     * y no se trae por defecto. Puede adjuntar un archivo o
      * una imagen pegada (pantallazo).
      */
     private static function hContabilizar($sol, $paso, $in, $files, $u)
     {
         $comp = isset($in['num_compensacion']) ? trim($in['num_compensacion']) : '';
         if (!empty($sol['NUM_CONTABILIZACION'])) {
-            if ($comp === '') {
-                throw new GasError('Indica el número de compensación.');
-            }
             $num = $sol['NUM_CONTABILIZACION'];
         } else {
             $num = self::numeroContabilizacion($in);

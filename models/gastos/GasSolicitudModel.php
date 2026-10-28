@@ -236,6 +236,18 @@ class GasSolicitudModel
         if (!empty($f['tipo']) && isset($tipos[$f['tipo']])) {
             $w[] = 's.TIPO = ' . GasDb::str($f['tipo']);
         }
+        // Tarjetas de resumen de la bandeja (mismas condiciones que self::estadisticas()).
+        $tarjetas = array(
+            'enCurso'      => "s.ESTADO = 'EN_CURSO'",
+            'aprobar'      => "s.ESTADO = 'EN_CURSO' AND ps.ACCION IN (" . self::ACC_APROBAR . ')',
+            'contabilidad' => "s.ESTADO = 'EN_CURSO' AND ps.ACCION = 'CONTABILIZAR'",
+            'tesoreria'    => "s.ESTADO = 'EN_CURSO' AND ps.ACCION = 'PAGAR'",
+            'finalizadas'  => "s.ESTADO = 'FINALIZADA'",
+            'cerradas'     => "s.ESTADO IN ('RECHAZADA', 'CANCELADA')",
+        );
+        if (!empty($f['tarjeta']) && isset($tarjetas[$f['tarjeta']])) {
+            $w[] = $tarjetas[$f['tarjeta']];
+        }
         if (!empty($f['paso'])) {
             $w[] = "s.ESTADO = 'EN_CURSO' AND ps.NOMBRE = " . GasDb::str($f['paso'], 120);
         }
@@ -268,6 +280,10 @@ class GasSolicitudModel
         $rid = (int) $u['rolId'];
         $w   = array('1 = 1');
 
+        // Una tarjeta del resumen cuenta sobre todas las solicitudes (administradores) o sobre las propias.
+        if (!empty($f['tarjeta'])) {
+            $vista = GasSesion::esAdmin($u) ? 'todas' : 'mias';
+        }
         switch ($vista) {
             case 'pendientes':
                 $w[] = "s.ESTADO = 'EN_CURSO' AND ps.ID IS NOT NULL AND ("
@@ -359,6 +375,8 @@ class GasSolicitudModel
         return array(
             'porTipo'    => GasDb::all("SELECT s.TIPO, COUNT(*) AS CANT, $valor AS VALOR $from $where GROUP BY s.TIPO ORDER BY CANT DESC"),
             'porRol'     => GasDb::all("SELECT $rol AS ROL, COUNT(*) AS CANT, $valor AS VALOR $from $where GROUP BY $rol ORDER BY CANT DESC"),
+            'porProceso' => GasDb::all("SELECT COALESCE(NULLIF(LTRIM(RTRIM(s.PROCESO)), ''), 'Sin proceso') AS PROCESO, COUNT(*) AS CANT, $valor AS VALOR
+                                         $from $where GROUP BY COALESCE(NULLIF(LTRIM(RTRIM(s.PROCESO)), ''), 'Sin proceso') ORDER BY CANT DESC"),
             'porRolTipo' => GasDb::all("SELECT $rol AS ROL, s.TIPO, COUNT(*) AS CANT, $valor AS VALOR $from $where GROUP BY $rol, s.TIPO ORDER BY 1, 2"),
             'porEstado'  => GasDb::all("SELECT s.ESTADO, COUNT(*) AS CANT $from $where GROUP BY s.ESTADO"),
             // Tiempo de respuesta: minutos entre que el paso quedó pendiente y quien lo ejecutó lo resolvió,
