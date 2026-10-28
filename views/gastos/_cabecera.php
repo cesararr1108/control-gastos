@@ -54,6 +54,7 @@ function gasMenuLink($href, $texto, $clave, $activo)
         <?php echo gasMenuLink('index.php', 'Solicitudes <span id="badgePendientes" class="ml-1 hidden rounded-full bg-rose-600 px-2 py-0.5 text-xs font-bold text-white"></span>', 'bandeja', $GAS_MENU_ACTIVO); ?>
         <?php if ($GAS_ADMIN) echo gasMenuLink('dashboard.php', 'Dashboard', 'dashboard', $GAS_MENU_ACTIVO); ?>
         <?php if ($GAS_ADMIN) echo gasMenuLink('flujos.php', 'Flujos', 'flujos', $GAS_MENU_ACTIVO); ?>
+        <?php if ($GAS_ADMIN) echo gasMenuLink('notificaciones.php', 'Notificaciones', 'notificaciones', $GAS_MENU_ACTIVO); ?>
       </nav>
       <span class="text-sm text-slate-600"><?php echo htmlspecialchars($GAS_USR['nombre'], ENT_QUOTES, 'UTF-8'); ?></span>
     </div>

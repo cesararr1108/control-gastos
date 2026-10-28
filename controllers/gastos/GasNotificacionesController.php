@@ -10,4 +10,16 @@ class GasNotificacionesController
             isset($in['navegador']) ? $in['navegador'] : '', isset($in['dispositivo']) ? $in['dispositivo'] : '');
         return array('registrado' => true);
     }
+
+    /** Revisión de la configuración (administradores). */
+    public static function diagnostico($u, $in, $files)
+    {
+        return GasNotificaciones::diagnostico($u);
+    }
+
+    /** Notificación de prueba al propio usuario (administradores). */
+    public static function probar($u, $in, $files)
+    {
+        return GasNotificaciones::probar($u);
+    }
 }

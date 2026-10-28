@@ -44,6 +44,8 @@ tests/logica.php               Pruebas sin base de datos
    (solicitante, usuarios del rol o usuario asignado); al finalizar o rechazar se avisa al solicitante.
    Para que el módulo registre el navegador/celular de cada usuario, llena `GasConfig::$FIREBASE_WEB` (configuración
    web de Firebase + `vapidKey`); si tu intranet ya registra los tokens con el correo del usuario, déjalo vacío.
+   Para revisar la configuración y enviarte una notificación de prueba entra a `views/gastos/notificaciones.php`
+   (menú «Notificaciones», solo administradores).
 7. **Login:** en `views/gastos/_inicio.php` ajusta `$LOGIN_URL`. El módulo lee las variables de sesión existentes
    (`ses_Id`, `ses_RolesId`, `ses_NumOrg`, `ses_OfcVentas`, `ses_DepId`, `ses_Usuario`).
 8. **Flujos:** entra a `views/gastos/flujos.php` y asigna el rol responsable de cada paso (por flujo y organización).

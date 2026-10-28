@@ -169,22 +169,127 @@ class GasNotificaciones
         if ($idempotencia) {
             $h[] = 'Idempotency-Key: ' . $idempotencia;
         }
-        $ch = curl_init(rtrim(GasConfig::PUSH_URL, '/') . $ruta);
-        curl_setopt_array($ch, array(
+        $ch = curl_init(self::url($ruta));
+        $op = array(
             CURLOPT_CUSTOMREQUEST  => $metodo,
-            CURLOPT_POSTFIELDS     => json_encode($datos),
             CURLOPT_HTTPHEADER     => $h,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => GasConfig::PUSH_TIMEOUT,
             CURLOPT_TIMEOUT        => GasConfig::PUSH_TIMEOUT,
-        ));
+        );
+        if ($datos !== null) {
+            $op[CURLOPT_POSTFIELDS] = json_encode($datos);
+        }
+        curl_setopt_array($ch, $op);
         $cuerpo = curl_exec($ch);
         $codigo = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        if ($cuerpo === false) {
-            $cuerpo = curl_error($ch);
-        }
+        $error  = $cuerpo === false ? curl_error($ch) : '';
         curl_close($ch);
-        return array('codigo' => $codigo === 0 ? 599 : $codigo, 'cuerpo' => (string) $cuerpo);
+        return array('codigo' => $codigo === 0 ? 599 : $codigo, 'cuerpo' => $cuerpo === false ? $error : (string) $cuerpo, 'error' => $error);
+    }
+
+    /** URL completa de un endpoint de la API. */
+    private static function url($ruta)
+    {
+        return rtrim(GasConfig::PUSH_URL, '/') . $ruta;
+    }
+
+    /* ------------------------------------------------------------- diagnóstico */
+
+    /**
+     * Revisa la configuración paso a paso (pantalla views/gastos/notificaciones.php, administradores).
+     * Devuelve una lista de array(titulo, estado ok|aviso|error, detalle). Nunca muestra la llave completa.
+     */
+    public static function diagnostico($u)
+    {
+        $r = array();
+        $key = GasConfig::pushApiKey();
+        $r[] = array('URL de la API (PUSH_URL)', GasConfig::PUSH_URL !== '' ? 'ok' : 'error',
+            GasConfig::PUSH_URL !== '' ? 'Se llama a ' . self::url('/api/v1/notificaciones') : 'Vacía: las notificaciones están desactivadas.');
+        $r[] = array('Llave de API', $key !== '' ? 'ok' : 'error',
+            $key !== '' ? 'Configurada (' . substr($key, 0, 7) . '…, ' . (getenv('GASTOS_PUSH_API_KEY') ? 'variable de entorno' : 'GasConfig::PUSH_API_KEY') . ').'
+                        : 'Falta: define GASTOS_PUSH_API_KEY o GasConfig::PUSH_API_KEY.');
+        $curl = function_exists('curl_init');
+        $r[] = array('Extensión curl de PHP', $curl ? 'ok' : 'error', $curl ? 'Disponible.' : 'No está instalada: PHP no puede llamar a la API.');
+        if ($curl && GasConfig::PUSH_URL !== '') {
+            $h = self::llamar('GET', '/api/v1/health', null, null);
+            if ($h['codigo'] === 200) {
+                $r[] = array('Conexión con la API (/api/v1/health)', 'ok', 'Responde: ' . substr($h['cuerpo'], 0, 120));
+            } elseif ($h['codigo'] === 404) {
+                $r[] = array('Conexión con la API (/api/v1/health)', 'error', 'HTTP 404 en ' . self::url('/api/v1/health')
+                    . '. La URL base no apunta a la carpeta public/ de la API: prueba agregando /public o /index.php al final de PUSH_URL, o revisa el document root del servidor.');
+            } else {
+                $r[] = array('Conexión con la API (/api/v1/health)', 'error', 'HTTP ' . $h['codigo'] . ($h['error'] ? ' · ' . $h['error'] : '')
+                    . ' · ' . substr(strip_tags($h['cuerpo']), 0, 200) . ($h['codigo'] === 599 ? ' (sin respuesta: DNS, firewall, certificado SSL o tiempo de espera)' : ''));
+            }
+        }
+        $email = self::emailUsuario($u);
+        $r[] = array('Tu correo en T_USUARIOS', $email ? 'ok' : 'error',
+            $email ? $email . ' — las notificaciones se envían a los dispositivos registrados con este correo en la API.' : 'Tu usuario no tiene un correo válido.');
+        $r[] = array('Enlace de la notificación (URL_MODULO)', stripos(GasConfig::URL_MODULO, 'https://') === 0 ? 'ok' : 'aviso',
+            stripos(GasConfig::URL_MODULO, 'https://') === 0 ? 'Abre ' . self::urlSolicitud(123) : 'Vacía o sin https: la notificación llega, pero al tocarla no abre la solicitud.');
+        $r[] = array('Registro de dispositivos desde este módulo ($FIREBASE_WEB)', GasConfig::$FIREBASE_WEB ? 'ok' : 'aviso',
+            GasConfig::$FIREBASE_WEB ? 'Configurado: cada usuario ve «Activar notificaciones» y su navegador o celular queda registrado.'
+                : 'Vacío: este módulo no registra dispositivos. Solo llegarán avisos a quien ya tenga su navegador o celular registrado en la API con su correo (p. ej. desde otra aplicación).');
+        return $r;
+    }
+
+    /**
+     * Envía una notificación de prueba al correo del usuario y devuelve lo que respondió la API
+     * con su interpretación (total = dispositivos encontrados para ese correo).
+     */
+    public static function probar($u)
+    {
+        if (!self::activa()) {
+            throw new GasError('Configura PUSH_URL y la llave de API primero.');
+        }
+        $email = self::emailUsuario($u);
+        if (!$email) {
+            throw new GasError('Tu usuario no tiene un correo válido en T_USUARIOS.');
+        }
+        $r = self::llamar('POST', '/api/v1/notificaciones', array(
+            'destinatarios' => array('emails' => array($email)),
+            'notificacion'  => array('titulo' => 'Prueba · Control de gastos', 'cuerpo' => 'Si ves este mensaje, las notificaciones funcionan.'),
+            'data'          => array('tipo' => 'gastos-prueba'),
+            'prioridad'     => 'high',
+        ), 'gas-prueba-' . date('YmdHis') . '-' . mt_rand(100, 999));
+        $json = json_decode($r['cuerpo'], true);
+        $d = is_array($json) && isset($json['data']) ? $json['data'] : null;
+        $explicacion = array(
+            401 => 'La llave de API no es válida (revisa que esté completa y activa).',
+            403 => 'La llave no tiene el permiso «notificaciones», o la IP de este servidor no está en la lista permitida de la llave.',
+            404 => 'La URL no es correcta: no se encontró /api/v1/notificaciones bajo PUSH_URL.',
+            429 => 'Se superó el límite de envíos de la llave; espera un minuto.',
+            599 => 'No hubo respuesta (DNS, firewall, certificado SSL o tiempo de espera).',
+        );
+        if ($r['codigo'] < 300 && $d) {
+            if ((int) $d['total'] === 0) {
+                $msg = 'La API respondió bien, pero tu correo no tiene ningún dispositivo registrado: por eso no llega nada. '
+                    . 'Registra tu navegador o celular (configura $FIREBASE_WEB para que el módulo lo haga, o regístralo desde la otra aplicación con el mismo correo).';
+                $estado = 'aviso';
+            } elseif ((int) $d['exitosos'] > 0) {
+                $msg = 'Enviada a ' . (int) $d['exitosos'] . ' de ' . (int) $d['total'] . ' dispositivo(s). Si no la ves, revisa el permiso de notificaciones del navegador o del sistema.';
+                $estado = 'ok';
+            } elseif ($d['estado'] === 'pendiente' || $d['estado'] === 'procesando') {
+                $msg = 'Quedó en cola (' . $d['estado'] . '): necesita que el worker de la API esté corriendo (php spark push:worker).';
+                $estado = 'aviso';
+            } else {
+                $msg = 'Firebase rechazó el envío (' . (int) $d['fallidos'] . ' fallidos, ' . (int) $d['invalidos'] . ' tokens vencidos). Revisa la cuenta de servicio de Firebase en la API y vuelve a registrar el dispositivo.';
+                $estado = 'error';
+            }
+        } else {
+            $msg = isset($explicacion[$r['codigo']]) ? $explicacion[$r['codigo']] : 'La API respondió con un error.';
+            $estado = 'error';
+        }
+        return array('estado' => $estado, 'mensaje' => $msg, 'email' => $email, 'http' => $r['codigo'],
+            'respuesta' => is_array($json) ? $json : substr(strip_tags($r['cuerpo']), 0, 500));
+    }
+
+    private static function emailUsuario($u)
+    {
+        $e = GasDb::scalar('SELECT LTRIM(RTRIM(EMAIL)) FROM T_USUARIOS WHERE ID = ' . (int) $u['id']);
+        $e = strtolower(trim((string) ($e ? $e : $u['email'])));
+        return filter_var($e, FILTER_VALIDATE_EMAIL) ? $e : null;
     }
 
     private static function corto($t, $max)
