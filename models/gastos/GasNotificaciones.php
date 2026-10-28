@@ -163,8 +163,8 @@ class GasNotificaciones
         $json = json_decode($r['cuerpo'], true);
         $d = is_array($json) && isset($json['data']) ? $json['data'] : null;
         self::registrar($solId, $pasoNombre, $org, $emails, $r['codigo'], $d,
-            $d ? 'Estado ' . $d['estado'] . ': ' . (int) $d['exitosos'] . ' de ' . (int) $d['total'] . ' dispositivo(s)' . ((int) $d['total'] === 0 ? ' — ningún dispositivo registrado para estos correos en la organización enviada' : '')
-               : substr(strip_tags($r['cuerpo']), 0, 400));
+            ($d ? 'Estado ' . $d['estado'] . ': ' . (int) $d['exitosos'] . ' de ' . (int) $d['total'] . ' dispositivo(s)' . ((int) $d['total'] === 0 ? ' — ningún dispositivo registrado para estos correos en la organización enviada' : '')
+               : substr(strip_tags($r['cuerpo']), 0, 300)) . ' · imagen: ' . ($img !== '' ? basename($img) : 'ninguna'));
     }
 
     /**
@@ -340,6 +340,31 @@ class GasNotificaciones
         return $datos;
     }
 
+    /** Comprueba que la imagen se pueda descargar (código HTTP, tipo y tamaño). */
+    private static function revisarImagen($url)
+    {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, array(CURLOPT_NOBODY => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_CONNECTTIMEOUT => 8, CURLOPT_TIMEOUT => 10, CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2));
+        curl_exec($ch);
+        $cod  = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $tipo = (string) curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+        $tam  = (float) curl_getinfo($ch, CURLINFO_CONTENT_LENGTH_DOWNLOAD);
+        $err  = curl_error($ch);
+        curl_close($ch);
+        if ($cod !== 200) {
+            return array('ok' => false, 'detalle' => 'No se puede abrir (HTTP ' . ($cod ?: 'sin respuesta') . ($err ? ', ' . $err : '')
+                . '). Copia la carpeta lib/img/gastos/notificaciones/ al servidor o corrige URL_IMAGENES_PUSH: sin esto la notificación llega sin imagen.');
+        }
+        if (stripos($tipo, 'image/') !== 0) {
+            return array('ok' => false, 'detalle' => 'Responde, pero no como imagen (Content-Type: ' . $tipo . ').');
+        }
+        if ($tam > 1048576) {
+            return array('ok' => false, 'detalle' => 'Pesa más de 1 MB: Firebase puede descartarla.');
+        }
+        return array('ok' => true, 'detalle' => 'Se descarga bien (' . $tipo . ($tam > 0 ? ', ' . round($tam / 1024) . ' KB' : '') . ').');
+    }
+
     /** Constante opcional de GasConfig (si tu GasConfig del servidor no la tiene, se usa el valor por defecto). */
     private static function cfg($nombre, $defecto)
     {
@@ -391,9 +416,13 @@ class GasNotificaciones
         $r[] = array('Enlace de la notificación (URL_MODULO)', stripos(GasConfig::URL_MODULO, 'https://') === 0 ? 'ok' : 'aviso',
             stripos(GasConfig::URL_MODULO, 'https://') === 0 ? 'Abre ' . self::urlSolicitud(123) : 'Vacía o sin https: la notificación llega, pero al tocarla no abre la solicitud.');
         $img = self::urlImagen('aprobar');
-        $r[] = array('Imagen de la notificación', $img !== '' ? 'ok' : 'aviso',
-            $img !== '' ? 'Ejemplo: ' . $img . ' — ábrela en el navegador: debe verse (cópiale al servidor la carpeta lib/img/gastos/notificaciones/).'
-                : 'Sin imagen: configura URL_MODULO con https (o GasConfig::URL_IMAGENES_PUSH).');
+        if ($img === '') {
+            $r[] = array('Imagen de la notificación', 'aviso', 'Sin imagen: configura URL_MODULO con https (o GasConfig::URL_IMAGENES_PUSH).');
+        } else {
+            // Firebase descarga la imagen desde internet: debe responder 200 con un PNG/JPG público.
+            $v = $curl ? self::revisarImagen($img) : array('ok' => null, 'detalle' => 'Sin curl: no se pudo comprobar.');
+            $r[] = array('Imagen de la notificación', $v['ok'] ? 'ok' : 'error', $img . ' — ' . $v['detalle']);
+        }
         $r[] = array('Registro de dispositivos desde este módulo ($FIREBASE_WEB)', GasConfig::$FIREBASE_WEB ? 'ok' : 'aviso',
             GasConfig::$FIREBASE_WEB ? 'Configurado: cada usuario ve «Activar notificaciones» y su navegador o celular queda registrado.'
                 : 'Vacío: este módulo no registra dispositivos. Solo llegarán avisos a quien ya tenga su navegador o celular registrado en la API con su correo (p. ej. desde otra aplicación).');
