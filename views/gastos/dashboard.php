@@ -12,7 +12,7 @@ $inputCls = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-s
 ?>
 <div class="mb-5">
   <h1 class="text-xl font-bold text-slate-900">Dashboard de gastos</h1>
-  <p class="text-sm text-slate-500">Cantidad y valor de las solicitudes por tipo y por rol del solicitante. Valor = valor del preliminar o, si aún no hay, el del anticipo.</p>
+  <p class="text-sm text-slate-500">Cantidad y valor de las solicitudes por tipo y por rol del solicitante, y cuánto se demora cada área en responder por proceso. Valor = valor del preliminar o, si aún no hay, el del anticipo.</p>
 </div>
 
 <!-- Filtros en una fila, arriba de las gráficas -->

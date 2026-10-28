@@ -57,6 +57,7 @@ $RUTAS = array(
     'flujos.guardar'       => array('GasFlujosController', 'guardar', 'POST', true),
     'flujos.estado'        => array('GasFlujosController', 'estado', 'POST', true),
     'archivos.ver'         => array('GasArchivosController', 'ver', 'GET', false),
+    'notificaciones.registrar' => array('GasNotificacionesController', 'registrar', 'POST', false),
 );
 
 /** ¿El usuario de la sesión es administrador? (solo ellos ven el detalle técnico de un error). */

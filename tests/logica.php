@@ -74,8 +74,41 @@ igual(false, $valida('19000000012'), 'contabilización de 11 dígitos');
 igual(false, $valida('2000000001'), 'contabilización que no empieza por 19');
 igual(false, $valida('19A00'), 'contabilización con letras');
 igual(false, $valida(''), 'contabilización vacía');
-igual(array('ROMA', 'FONDO', 'NOTA'), array_keys(GasCatalogo::fondos()), 'fondos: Roma, Fondo, Nota');
-igual(array('FONDO', 'NOTA'), GasCatalogo::fondosConNumero(), 'Fondo y Nota piden número');
+igual(array('ROMA', 'FONDO', 'NOTA', 'TARJETA'), array_keys(GasCatalogo::fondos()), 'fondos: Roma, Fondo, Nota, Tarjeta de crédito');
+igual(array('FONDO', 'NOTA', 'TARJETA'), GasCatalogo::fondosConNumero(), 'Fondo, Nota y Tarjeta piden número');
+igual('**** 1234', GasCatalogo::enmascararTarjeta('4111 1111 1111 1234'), 'tarjeta: solo se guardan los últimos 4');
+igual('**** 9876', GasCatalogo::enmascararTarjeta('9876'), 'tarjeta: basta con los últimos 4');
+igual(null, GasCatalogo::enmascararTarjeta('12a4'), 'tarjeta con letras');
+igual(null, GasCatalogo::enmascararTarjeta('123'), 'tarjeta con menos de 4 dígitos');
+
+echo "Archivos del FTP\n";
+require_once $base . 'GasArchivos.php';
+$ftp = function ($ruta, $nombre, $grupo, $tamano = 1000) {
+    try {
+        $g = GasArchivos::desdeFtp(array('ruta' => $ruta, 'nombre' => $nombre, 'tamano' => $tamano), 'Soporte', $grupo);
+        return $g['ruta'];
+    } catch (GasError $e) {
+        return false;
+    }
+};
+igual('web/gastos/gas_abc.pdf', $ftp('/web/gastos/gas_abc.pdf', 'factura.pdf', 'pdf'), 'FTP: PDF en la carpeta del módulo');
+igual('web/gastos/gas_abc.xlsx', $ftp('web/gastos/gas_abc.xlsx', 'cuadro.xlsx', 'documento'), 'FTP: Excel como documento');
+igual(false, $ftp('/web/gastos/gas_abc.xlsx', 'cuadro.xlsx', 'pdf'), 'FTP: Excel donde solo va PDF');
+igual('web/gastos/gas_abc.jpg', $ftp('/web/gastos/gas_abc.jpg', 'foto.jpg', 'imagen'), 'FTP: foto como imagen');
+igual(false, $ftp('/web/otra/gas_abc.pdf', 'factura.pdf', 'pdf'), 'FTP: carpeta ajena');
+igual(false, $ftp('/web/gastos/../x.pdf', 'factura.pdf', 'pdf'), 'FTP: ruta con ..');
+igual(false, $ftp('/web/gastos/sub/x.pdf', 'factura.pdf', 'pdf'), 'FTP: subcarpeta');
+igual(false, $ftp('/web/gastos/gas_abc.php', 'factura.pdf', 'pdf'), 'FTP: archivo con extensión no permitida');
+igual(false, $ftp('/web/gastos/gas_abc.pdf', 'factura.pdf', 'pdf', 50 * 1024 * 1024), 'FTP: supera el tamaño máximo');
+igual(true, GasArchivos::esFtp('web/gastos/gas_abc.pdf'), 'esFtp con carpeta');
+igual(false, GasArchivos::esFtp('a1b2c3.pdf'), 'archivo local antiguo');
+
+echo "Áreas del dashboard\n";
+$acc = array();
+foreach (GasCatalogo::areasRespuesta() as $a) {
+    $acc = array_merge($acc, $a['acciones']);
+}
+igual(array(), array_diff($acc, array_keys(GasCatalogo::acciones())), 'las acciones de las áreas existen');
 
 echo $fallos ? "\n$fallos prueba(s) fallaron\n" : "\nTodo bien\n";
 exit($fallos ? 1 : 0);

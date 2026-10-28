@@ -71,6 +71,8 @@ class GasMotor
             GasArchivos::borrar(self::$rutasNuevas);
             throw $e;
         }
+        // Aviso push a quien sigue (o al solicitante si se cerró). Nunca falla el paso.
+        GasNotificaciones::solicitud($solId, $u['id'], $decision === 'DEVUELTO' ? 'devuelta' : 'avance');
     }
 
     /**
@@ -165,8 +167,7 @@ class GasMotor
         $cots  = isset($in['cot']) && is_array($in['cot']) ? $in['cot'] : array();
         $datos = array();
         for ($n = 1; $n <= 3; $n++) {
-            $f    = isset($files['cot_' . $n]) ? $files['cot_' . $n] : null;
-            $hay  = $f && isset($f['error']) && $f['error'] !== UPLOAD_ERR_NO_FILE;
+            $hay  = self::hayArchivo($in, $files, 'cot_' . $n);
             $c    = isset($cots[$n]) && is_array($cots[$n]) ? $cots[$n] : array();
             $prov = isset($c['proveedor']) ? trim($c['proveedor']) : '';
             $valor = isset($c['valor']) ? GasDb::aNumero($c['valor']) : 0;
@@ -182,10 +183,8 @@ class GasMotor
             if ($valor <= 0) {
                 throw new GasError("Cotización $n: el valor es obligatorio cuando adjuntas el archivo.");
             }
-            $g = GasArchivos::guardarPdf($f, "Cotización $n");
-            self::$rutasNuevas[] = $g['ruta'];
             $datos[$n] = array('proveedor' => $prov, 'valor' => $valor,
-                'archivo' => self::registrarArchivo($sol['ID'], $paso['ORDEN'], 'COTIZACION', $g, $u));
+                'archivo' => self::guardarArchivo($sol, $paso, $in, $files, 'cot_' . $n, 'COTIZACION', "la cotización $n (PDF)", 'pdf', true, $u));
         }
         if (!$datos) {
             throw new GasError('Adjunta al menos una cotización en PDF.');
@@ -300,14 +299,20 @@ class GasMotor
         if (GasDb::fecha($fechaF) === 'NULL') {
             throw new GasError('Indica la fecha de la factura.');
         }
-        // ¿De dónde sale el pago? Roma (por defecto), Fondo o Nota; Fondo y Nota llevan su número.
+        // ¿De dónde sale el pago? Roma (por defecto), Fondo, Nota o Tarjeta de crédito; los tres últimos llevan su número.
         $fondos = GasCatalogo::fondos();
         $fondo  = isset($in['fondo']) && $in['fondo'] !== '' ? $in['fondo'] : 'ROMA';
         if (!isset($fondos[$fondo])) {
-            throw new GasError('Elige de dónde sale el pago: Roma, Fondo o Nota.');
+            throw new GasError('Elige de dónde sale el pago: Roma, Fondo, Nota o Tarjeta de crédito.');
         }
         $fondoNum = null;
-        if (in_array($fondo, GasCatalogo::fondosConNumero(), true)) {
+        if ($fondo === 'TARJETA') {
+            // De la tarjeta solo se guardan los últimos 4 dígitos.
+            $fondoNum = GasCatalogo::enmascararTarjeta(isset($in['fondo_numero']) ? $in['fondo_numero'] : '');
+            if ($fondoNum === null) {
+                throw new GasError('Indica el número de la tarjeta de crédito (solo dígitos; basta con los últimos 4).');
+            }
+        } elseif (in_array($fondo, GasCatalogo::fondosConNumero(), true)) {
             $fondoNum = self::texto($in, 'fondo_numero', 30, $fondo === 'NOTA' ? 'Indica el número de la nota.' : 'Indica el número del fondo.');
         }
         self::guardarTercero($sol['ID'], $in);
@@ -323,27 +328,19 @@ class GasMotor
         }
 
         // La factura en PDF es obligatoria. El soporte de pago lo es solo si la cotización lo exigió.
+        // El soporte de pago y el preliminar (soportes 3 y 4) aceptan PDF, imagen, Excel o Word.
         $exigeSoporte = !empty($sol['REQUIERE_SOPORTE_PAGO']);
         $archivos = array(
-            'factura_pdf'    => array('FACTURA', 'Factura (PDF)', true),
-            'soporte_pago'   => array('SOPORTE_PAGO', 'Soporte de pago', $exigeSoporte),
-            'preliminar_pdf' => array('PRELIMINAR', 'Preliminar (PDF)', false),
-            'contrato_pdf'   => array('CONTRATO', 'Contrato u otro soporte (PDF)', false), // para que GA contraste la factura con lo pactado
+            'factura_pdf'    => array('FACTURA', 'la factura (PDF)', true, 'pdf'),
+            'soporte_pago'   => array('SOPORTE_PAGO', 'el soporte de pago (esta solicitud lo requiere)', $exigeSoporte, 'documento'),
+            'preliminar_pdf' => array('PRELIMINAR', 'el preliminar', false, 'documento'),
+            'contrato_pdf'   => array('CONTRATO', 'el contrato u otro soporte (PDF)', false, 'pdf'), // para que GA contraste la factura con lo pactado
         );
         if ($soloFactura) {
             $archivos = array('factura_pdf' => $archivos['factura_pdf'], 'contrato_pdf' => $archivos['contrato_pdf']);
         }
         foreach ($archivos as $campo => $meta) {
-            $f   = isset($files[$campo]) ? $files[$campo] : null;
-            $hay = $f && isset($f['error']) && $f['error'] !== UPLOAD_ERR_NO_FILE;
-            if (!$hay && $meta[2]) {
-                throw new GasError($campo === 'soporte_pago' ? 'Esta solicitud requiere soporte de pago en PDF.' : 'Adjunta la factura en PDF.');
-            }
-            if ($hay) {
-                $g = GasArchivos::guardarPdf($f, $meta[1]);
-                self::$rutasNuevas[] = $g['ruta'];
-                self::registrarArchivo($sol['ID'], $paso['ORDEN'], $meta[0], $g, $u);
-            }
+            self::guardarArchivo($sol, $paso, $in, $files, $campo, $meta[0], $meta[1], $meta[3], $meta[2], $u);
         }
         GasDb::query('UPDATE T_GAS_SOLICITUDES SET NUM_PRELIMINAR = ' . GasDb::str($num, 30) . ', VALOR_TOTAL = ' . GasDb::num($valor)
             . ', FECHA_FACTURA = ' . GasDb::fecha($fechaF) . ', FONDO = ' . GasDb::str($fondo) . ', FONDO_NUMERO = ' . GasDb::str($fondoNum, 30)
@@ -377,7 +374,7 @@ class GasMotor
         } else {
             $num = self::numeroContabilizacion($in);
         }
-        self::guardarSoporteOpcional($sol, $paso, $files, 'soporte', 'SOPORTE_CONTAB', 'Soporte de la contabilización', $u);
+        self::guardarArchivo($sol, $paso, $in, $files, 'soporte', 'SOPORTE_CONTAB', 'el soporte de la contabilización', 'imagen', false, $u);
         GasDb::query('UPDATE T_GAS_SOLICITUDES SET NUM_CONTABILIZACION = ' . GasDb::str($num, 30) . ', NUM_COMPENSACION = ' . GasDb::str($comp, 30)
             . ' WHERE ID = ' . (int) $sol['ID']);
         return array('decision' => 'COMPLETADO', 'comentario' => self::textoOpcional($in, 'comentario', 500));
@@ -396,16 +393,27 @@ class GasMotor
         return $num;
     }
 
-    /** Guarda un soporte (PDF o imagen) si vino; no hace nada si no se adjuntó. */
-    private static function guardarSoporteOpcional($sol, $paso, $files, $campo, $categoria, $etiqueta, $u)
+    /**
+     * Recibe el archivo de un campo (del FTP o subido al servidor, ver GasArchivos::recibir), lo
+     * registra en T_GAS_ARCHIVOS y devuelve su ID (null si no vino y no es obligatorio).
+     */
+    private static function guardarArchivo($sol, $paso, $in, $files, $campo, $categoria, $etiqueta, $grupo, $obligatorio, $u)
     {
-        $f = isset($files[$campo]) ? $files[$campo] : null;
-        if (!$f || !isset($f['error']) || $f['error'] === UPLOAD_ERR_NO_FILE) {
-            return;
+        $g = GasArchivos::recibir($in, $files, $campo, $etiqueta, $grupo, $obligatorio);
+        if (!$g) {
+            return null;
         }
-        $g = GasArchivos::guardarSoporte($f, $etiqueta);
         self::$rutasNuevas[] = $g['ruta'];
-        self::registrarArchivo($sol['ID'], $paso['ORDEN'], $categoria, $g, $u);
+        return self::registrarArchivo($sol['ID'], $paso['ORDEN'], $categoria, $g, $u);
+    }
+
+    /** ¿El formulario trae archivo en este campo (FTP o subido)? */
+    private static function hayArchivo($in, $files, $campo)
+    {
+        if (!empty($in['ftp'][$campo]['ruta'])) {
+            return true;
+        }
+        return isset($files[$campo]['error']) && $files[$campo]['error'] !== UPLOAD_ERR_NO_FILE;
     }
 
     /** PAGAR: número de comprobante ZP, fecha de pago y comprobante en PDF. */
@@ -416,9 +424,7 @@ class GasMotor
         if (GasDb::fecha($fecha) === 'NULL') {
             throw new GasError('Indica una fecha de pago válida.');
         }
-        $g = GasArchivos::guardarSoporte(isset($files['comprobante']) ? $files['comprobante'] : null, 'Comprobante de pago'); // PDF o imagen pegada
-        self::$rutasNuevas[] = $g['ruta'];
-        self::registrarArchivo($sol['ID'], $paso['ORDEN'], 'COMPROBANTE', $g, $u);
+        self::guardarArchivo($sol, $paso, $in, $files, 'comprobante', 'COMPROBANTE', 'el comprobante de pago', 'imagen', true, $u); // PDF o imagen pegada
         GasDb::query('UPDATE T_GAS_SOLICITUDES SET NUM_COMPROBANTE_ZP = ' . GasDb::str($zp, 30) . ', FECHA_PAGO = ' . GasDb::fecha($fecha)
             . ' WHERE ID = ' . (int) $sol['ID']);
         return array('decision' => 'COMPLETADO', 'comentario' => self::textoOpcional($in, 'comentario', 500));
@@ -600,7 +606,8 @@ class GasMotor
         $sql  = array();
         $ccOk = array();
         $n    = 0;
-        foreach ($filas as $l) {
+        $sinSoporte = 0;
+        foreach ($filas as $idx => $l) {
             if (!is_array($l)) {
                 continue;
             }
@@ -637,6 +644,10 @@ class GasMotor
             if (!$ccOk[$cc]) {
                 throw new GasError("F-FR-024, fila $n: el centro de costo «$cc» no existe.");
             }
+            $archivoFila = self::soporteFila($sol, $paso, $in, $files, $idx, $l, $n, $u);
+            if (!$archivoFila) {
+                $sinSoporte++;
+            }
             $totFila = 0.0;
             foreach ($tipos as $tipo => $nombreTipo) {
                 $valor = isset($valores[$tipo]) ? round(GasDb::aNumero($valores[$tipo]), 2) : 0;
@@ -650,10 +661,10 @@ class GasMotor
                     ? round($valor * GasConfig::RETEFUENTE_TASA) : 0;
                 $totFila += $valor;
                 $rete    += $rf;
-                $sql[] = 'INSERT INTO T_GAS_LEGALIZACION_DETALLE (SOLICITUD_ID, FECHA, CENTRO_COSTO, NUM_DOCUMENTO, DETALLE, TIPO_GASTO, VALOR, RETEFUENTE) VALUES ('
+                $sql[] = 'INSERT INTO T_GAS_LEGALIZACION_DETALLE (SOLICITUD_ID, FECHA, CENTRO_COSTO, NUM_DOCUMENTO, DETALLE, TIPO_GASTO, VALOR, RETEFUENTE, ARCHIVO_ID) VALUES ('
                     . (int) $sol['ID'] . ', ' . GasDb::fecha($fecha) . ', ' . GasDb::str($cc, 40) . ', '
                     . GasDb::str(isset($l['documento']) ? $l['documento'] : null, 30) . ', ' . GasDb::str($det, 200) . ', '
-                    . GasDb::str($tipo) . ', ' . GasDb::num($valor) . ', ' . GasDb::num($rf) . ')';
+                    . GasDb::str($tipo) . ', ' . GasDb::num($valor) . ', ' . GasDb::num($rf) . ', ' . GasDb::int($archivoFila) . ')';
             }
             if ($totFila <= 0) {
                 throw new GasError("F-FR-024, fila $n: escribe el valor en alguna columna (Transp, Bus/taxis, Hotel…).");
@@ -668,17 +679,15 @@ class GasMotor
         $recibido    = isset($sol['VALOR_ANTICIPO']) ? (float) $sol['VALOR_ANTICIPO'] : 0.0;
         $saldo       = round($recibido - $totalCuenta, 2);
 
-        $g = GasArchivos::guardarPdf(isset($files['soportes_legalizacion']) ? $files['soportes_legalizacion'] : null,
-            'Soportes de la legalización (un solo PDF)');
-        self::$rutasNuevas[] = $g['ruta'];
-        self::registrarArchivo($sol['ID'], $paso['ORDEN'], 'LEGALIZACION', $g, $u);
+        // El archivo general de soportes solo es obligatorio si alguna fila quedó sin su propio soporte.
+        self::guardarArchivo($sol, $paso, $in, $files, 'soportes_legalizacion', 'LEGALIZACION',
+            $sinSoporte ? "los soportes de la legalización ($sinSoporte fila(s) no tienen soporte propio)" : 'los soportes de la legalización',
+            'imagen', $sinSoporte > 0, $u);
 
         // Saldo a favor de la empresa: quien legaliza adjunta el comprobante de la transferencia (PDF o imagen).
         if ($saldo > 0) {
-            $r = GasArchivos::guardarSoporte(isset($files['comprobante_reintegro']) ? $files['comprobante_reintegro'] : null,
-                'Comprobante de la transferencia a la empresa (hay saldo a favor de la empresa)');
-            self::$rutasNuevas[] = $r['ruta'];
-            self::registrarArchivo($sol['ID'], $paso['ORDEN'], 'REINTEGRO', $r, $u);
+            self::guardarArchivo($sol, $paso, $in, $files, 'comprobante_reintegro', 'REINTEGRO',
+                'el comprobante de la transferencia a la empresa (hay saldo a favor de la empresa)', 'imagen', true, $u);
         }
 
         GasDb::query('DELETE FROM T_GAS_LEGALIZACION_DETALLE WHERE SOLICITUD_ID = ' . (int) $sol['ID']);
@@ -688,6 +697,26 @@ class GasMotor
         GasDb::query('UPDATE T_GAS_SOLICITUDES SET NUM_PRELIMINAR = ' . GasDb::str($num, 30) . ', VALOR_TOTAL = ' . GasDb::num($totalCuenta)
             . ', VALOR_LEGALIZADO = ' . GasDb::num($totalCuenta) . ', RETEFUENTE_LEGALIZACION = ' . GasDb::num($rete)
             . ', SALDO_LEGALIZACION = ' . GasDb::num($saldo) . ' WHERE ID = ' . (int) $sol['ID']);
+    }
+
+    /**
+     * Soporte (PDF o foto) de una fila del F-FR-024: el archivo nuevo (campo legal_soporte_<idx>) o,
+     * si la legalización volvió para corrección, el que ya tenía la fila (legal[idx][archivo_id]),
+     * siempre que sea un soporte de gasto de esta misma solicitud. Devuelve el ID o null.
+     */
+    private static function soporteFila($sol, $paso, $in, $files, $idx, $l, $n, $u)
+    {
+        $campo = 'legal_soporte_' . preg_replace('/\D/', '', (string) $idx);
+        if (self::hayArchivo($in, $files, $campo)) {
+            return self::guardarArchivo($sol, $paso, $in, $files, $campo, 'SOPORTE_GASTO', "el soporte de la fila $n", 'imagen', true, $u);
+        }
+        $previo = isset($l['archivo_id']) ? (int) $l['archivo_id'] : 0;
+        if ($previo > 0) {
+            $ok = GasDb::scalar('SELECT ID FROM T_GAS_ARCHIVOS WHERE ID = ' . $previo . ' AND SOLICITUD_ID = ' . (int) $sol['ID']
+                . " AND CATEGORIA = 'SOPORTE_GASTO'");
+            return $ok ? (int) $ok : null;
+        }
+        return null;
     }
 
     /** Inserta el registro de un PDF ya guardado y devuelve su ID. */

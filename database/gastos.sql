@@ -102,8 +102,8 @@ CREATE TABLE dbo.T_GAS_SOLICITUDES (
   /* Numeros que montan los responsables */
   FECHA_FACTURA        date          NULL,
   PAGO_FONDO           bit           NULL,                -- el pago del preliminar sale de un fondo
-  FONDO                varchar(20)   NULL,                -- ROMA | FONDO | NOTA (antes FONDO_ROMA | FONDO_PROVEEDORES)
-  FONDO_NUMERO         varchar(30)   NULL,                -- número del fondo o de la nota (cuando FONDO es FONDO o NOTA)
+  FONDO                varchar(20)   NULL,                -- ROMA | FONDO | NOTA | TARJETA (antes FONDO_ROMA | FONDO_PROVEEDORES)
+  FONDO_NUMERO         varchar(30)   NULL,                -- número del fondo o de la nota; de la tarjeta solo «**** 1234»
   VALOR_LEGALIZADO     numeric(15,2) NULL,                -- total legalizado (anticipo por viaticos)
   RETEFUENTE_LEGALIZACION numeric(15,2) NULL,             -- retefuente descontada en la legalizacion (F-FR-024)
   SALDO_LEGALIZACION   numeric(15,2) NULL,                -- anticipo - legalizado: >0 a favor de la empresa, <0 a favor del tercero
@@ -230,9 +230,9 @@ CREATE TABLE dbo.T_GAS_ARCHIVOS (
   ID              int IDENTITY(1,1) NOT NULL,
   SOLICITUD_ID    int          NOT NULL,
   PASO_ORDEN      int          NULL,
-  CATEGORIA       varchar(20)  NOT NULL,   -- COTIZACION | FACTURA | LEGALIZACION | SOPORTE_PAGO | PRELIMINAR | COMPROBANTE | CONTRATO | REINTEGRO | SOPORTE_CONTAB
+  CATEGORIA       varchar(20)  NOT NULL,   -- COTIZACION | FACTURA | LEGALIZACION | SOPORTE_PAGO | PRELIMINAR | COMPROBANTE | CONTRATO | REINTEGRO | SOPORTE_CONTAB | SOPORTE_GASTO
   NOMBRE_ORIGINAL varchar(200) NOT NULL,
-  RUTA            varchar(120) NOT NULL,   -- nombre del archivo dentro de uploads/gastos/
+  RUTA            varchar(255) NOT NULL,   -- ruta en el FTP (web/gastos/archivo) o nombre del archivo dentro de uploads/gastos/
   TAMANO          int          NOT NULL,
   USUARIO_ID      int          NOT NULL,
   FECHA           datetime     NOT NULL DEFAULT getdate(),
@@ -289,9 +289,14 @@ CREATE TABLE dbo.T_GAS_LEGALIZACION_DETALLE (
   TIPO_GASTO     varchar(12)   NOT NULL,   -- TRANSP | BUS_TAXIS | HOTEL | ALIMENT | ATENCION | GASOLINA | SERVICIOS | OTROS
   VALOR          numeric(15,2) NOT NULL,
   RETEFUENTE     numeric(15,2) NOT NULL DEFAULT 0,
+  ARCHIVO_ID     int           NULL,       -- soporte propio de la fila (PDF o foto, CATEGORIA = SOPORTE_GASTO)
   CONSTRAINT PK_T_GAS_LEGALIZACION_DETALLE PRIMARY KEY CLUSTERED (ID),
-  CONSTRAINT FK_T_GAS_LEGAL_SOL FOREIGN KEY (SOLICITUD_ID) REFERENCES dbo.T_GAS_SOLICITUDES (ID)
+  CONSTRAINT FK_T_GAS_LEGAL_SOL FOREIGN KEY (SOLICITUD_ID) REFERENCES dbo.T_GAS_SOLICITUDES (ID),
+  CONSTRAINT FK_T_GAS_LEGAL_ARCH FOREIGN KEY (ARCHIVO_ID) REFERENCES dbo.T_GAS_ARCHIVOS (ID)
 );
+GO
+IF COL_LENGTH('dbo.T_GAS_LEGALIZACION_DETALLE', 'ARCHIVO_ID') IS NULL
+  ALTER TABLE dbo.T_GAS_LEGALIZACION_DETALLE ADD ARCHIVO_ID int NULL;
 GO
 
 /* ----------------------------------------------------------------------------

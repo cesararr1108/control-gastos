@@ -143,21 +143,49 @@ class GasCatalogo
 
     /**
      * De dónde sale el pago de una legalización con factura. «Roma» es el valor por defecto;
-     * «Fondo» y «Nota» exigen el número del fondo o de la nota.
+     * «Fondo», «Nota» y «Tarjeta de crédito» exigen su número.
      */
     public static function fondos()
     {
         return array(
-            'ROMA'  => 'Roma',
-            'FONDO' => 'Fondo',
-            'NOTA'  => 'Nota',
+            'ROMA'    => 'Roma',
+            'FONDO'   => 'Fondo',
+            'NOTA'    => 'Nota',
+            'TARJETA' => 'Tarjeta de crédito',
         );
     }
 
     /** Fondos con número obligatorio. */
     public static function fondosConNumero()
     {
-        return array('FONDO', 'NOTA');
+        return array('FONDO', 'NOTA', 'TARJETA');
+    }
+
+    /**
+     * Número de tarjeta de crédito: se reciben de 4 a 19 dígitos y solo se guardan los últimos 4
+     * («**** 1234»), suficiente para identificar la tarjeta corporativa sin almacenar el número completo.
+     * Devuelve null si no es válido.
+     */
+    public static function enmascararTarjeta($numero)
+    {
+        $d = preg_replace('/[\s\-]/', '', (string) $numero);
+        if (!preg_match('/^\d{4,19}$/', $d)) {
+            return null;
+        }
+        return '**** ' . substr($d, -4);
+    }
+
+    /**
+     * Área que responde cada acción (dashboard de tiempos de respuesta).
+     * Las acciones del solicitante no cuentan como respuesta de un área.
+     */
+    public static function areasRespuesta()
+    {
+        return array(
+            'ADMINISTRATIVA' => array('nombre' => 'Gerencia administrativa', 'acciones' => array('AUTORIZAR_COTIZACION', 'APROBAR')),
+            'CONTABILIDAD'   => array('nombre' => 'Contabilidad', 'acciones' => array('CONTABILIZAR')),
+            'TESORERIA'      => array('nombre' => 'Tesorería', 'acciones' => array('PAGAR')),
+        );
     }
 
     /** Niveles de T_ROLES_GASTOS_INFO. */

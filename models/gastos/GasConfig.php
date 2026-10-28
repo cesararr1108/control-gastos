@@ -50,8 +50,58 @@ class GasConfig
     /** Dias que tiene el colaborador para legalizar despues del viaje (clausula del F-FR-023). */
     const DIAS_LEGALIZACION = 30;
 
-        /** Tamano maximo por PDF, en MB. */
+    /** Tamano maximo por PDF, en MB. */
     const MAX_PDF_MB = 10;
+
+    /**
+     * FTP de soportes. El navegador sube cada archivo con subirArchivos() de lib/js/servicios.js
+     * (models/ServiceUploadFile.php) a la carpeta FTP_RUTA y la solicitud solo guarda la ruta.
+     *  - FTP_ACTIVO = false: se usa la carpeta local uploads/gastos/ como antes.
+     *  - FTP_URL: URL pública de esa carpeta, para abrir los archivos. Compruébala abriendo un archivo
+     *    subido: si la carpeta «web» del FTP es la raíz del sitio, quita «/web» de la URL.
+     */
+    const FTP_ACTIVO = true;
+    const FTP_RUTA   = '/web/gastos';
+    const FTP_URL    = 'https://app.pwmultiroma.com/web/gastos';
+
+    /**
+     * Tipos de archivo permitidos por grupo (extensiones). El servidor vuelve a validar la extensión
+     * de cada archivo que llega del FTP antes de registrarlo.
+     */
+    public static $EXT_ARCHIVOS = array(
+        'pdf'       => array('pdf'),
+        'imagen'    => array('pdf', 'png', 'jpg', 'jpeg', 'webp'),
+        'documento' => array('pdf', 'png', 'jpg', 'jpeg', 'webp', 'xls', 'xlsx', 'csv', 'doc', 'docx', 'txt'),
+    );
+
+    /**
+     * Notificaciones push (proyecto notificaciones-push-roma). Al pasar una solicitud a un paso se
+     * avisa a quien debe actuar (por su correo de T_USUARIOS). PUSH_URL vacío = desactivado.
+     * La llave de API (scope «notificaciones» y «tokens») se lee de la variable de entorno
+     * GASTOS_PUSH_API_KEY; si no existe, de PUSH_API_KEY. Nunca la publiques en el repositorio.
+     */
+    const PUSH_URL     = '';            // p. ej. 'https://push.pwmultiroma.com'
+    const PUSH_API_KEY = '';
+    const PUSH_TIMEOUT = 4;             // segundos: si la API no responde, el paso se registra igual
+    /** URL pública (https) de views/gastos/, para que la notificación abra la solicitud. */
+    const URL_MODULO   = '';            // p. ej. 'https://app.pwmultiroma.com/views/gastos/'
+
+    /**
+     * Configuración web de Firebase y llave VAPID para registrar el navegador de cada usuario en la
+     * API de notificaciones. Vacía = el módulo no registra dispositivos (si tu intranet ya registra
+     * los tokens con el correo del usuario, déjala vacía).
+     */
+    public static $FIREBASE_WEB = array(
+        // 'apiKey' => '', 'authDomain' => '', 'projectId' => '', 'storageBucket' => '',
+        // 'messagingSenderId' => '', 'appId' => '', 'vapidKey' => '',
+    );
+
+    /** Llave de la API de notificaciones (entorno primero). */
+    public static function pushApiKey()
+    {
+        $k = getenv('GASTOS_PUSH_API_KEY');
+        return $k ? $k : self::PUSH_API_KEY;
+    }
 
     /**
      * true  = la conexion mssql trabaja en Latin1/cp1252 (lo normal con collation Modern_Spanish):

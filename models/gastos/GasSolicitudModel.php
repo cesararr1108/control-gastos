@@ -79,6 +79,7 @@ class GasSolicitudModel
             GasDb::rollback();
             throw $e;
         }
+        GasNotificaciones::solicitud($id, $u['id']);
         return $id;
     }
 
@@ -149,7 +150,7 @@ class GasSolicitudModel
               WHERE e.SOLICITUD_ID = " . $sid . ' ORDER BY e.ID DESC'
         );
         $s['legalizacion'] = GasDb::all(
-            'SELECT CONVERT(varchar(10), FECHA, 120) AS FECHA, CENTRO_COSTO, NUM_DOCUMENTO, DETALLE, TIPO_GASTO, VALOR, RETEFUENTE
+            'SELECT CONVERT(varchar(10), FECHA, 120) AS FECHA, CENTRO_COSTO, NUM_DOCUMENTO, DETALLE, TIPO_GASTO, VALOR, RETEFUENTE, ARCHIVO_ID
                FROM T_GAS_LEGALIZACION_DETALLE WHERE SOLICITUD_ID = ' . $sid . ' ORDER BY FECHA, ID'
         );
         $s['viaticos'] = GasDb::all(
@@ -375,6 +376,35 @@ class GasSolicitudModel
                     AND (p.COMENTARIO IS NULL OR p.COMENTARIO NOT LIKE 'Registrado al definir%')
                   GROUP BY COALESCE(er.TITULO, 'Sin rol') ORDER BY MIN_PROMEDIO DESC"
             ),
+            'tiemposArea' => self::tiemposPorArea($where),
+        );
+    }
+
+    /**
+     * Tiempo de respuesta de cada área (Gerencia administrativa, Contabilidad, Tesorería; ver
+     * GasCatalogo::areasRespuesta) por el proceso que montó la solicitud (Mercadeo, Tecnología…):
+     * minutos desde que el paso le llega al área hasta que lo resuelve (aprobado, realizado o
+     * rechazado). Excluye los pasos que el sistema registró solo.
+     * Filas: AREA, PROCESO, PASOS, MIN_PROMEDIO, MIN_MAXIMO.
+     */
+    private static function tiemposPorArea($where)
+    {
+        $caso = 'CASE';
+        foreach (GasCatalogo::areasRespuesta() as $clave => $a) {
+            $caso .= ' WHEN p.ACCION IN (' . implode(',', array_map(array('GasDb', 'str'), $a['acciones'])) . ') THEN ' . GasDb::str($clave);
+        }
+        $caso .= ' END';
+        $proceso = "COALESCE(NULLIF(LTRIM(RTRIM(s.PROCESO)), ''), 'Sin proceso')";
+        return GasDb::all(
+            "SELECT $caso AS AREA, $proceso AS PROCESO, COUNT(*) AS PASOS,
+                    AVG(CAST(DATEDIFF(MINUTE, p.FECHA_INICIO, p.FECHA_FIN) AS float)) AS MIN_PROMEDIO,
+                    MAX(DATEDIFF(MINUTE, p.FECHA_INICIO, p.FECHA_FIN)) AS MIN_MAXIMO
+               FROM T_GAS_SOLICITUDES s
+               JOIN T_GAS_SOLICITUD_PASOS p ON p.SOLICITUD_ID = s.ID
+              $where " . ($where ? 'AND' : 'WHERE') . " p.FECHA_INICIO IS NOT NULL AND p.FECHA_FIN IS NOT NULL
+                AND p.ESTADO IN ('COMPLETADO','RECHAZADO') AND p.EJECUTADO_POR IS NOT NULL AND $caso IS NOT NULL
+                AND (p.COMENTARIO IS NULL OR p.COMENTARIO NOT LIKE 'Registrado al definir%')
+              GROUP BY $caso, $proceso"
         );
     }
 
@@ -391,6 +421,7 @@ class GasSolicitudModel
                     s.PROCESO, s.DESCRIPCION, s.TERCERO_NIT, s.TERCERO_NOMBRE, s.CARGO, s.CENTRO_COSTOS,
                     s.TIPO_ANTICIPO, s.VALOR_ANTICIPO, s.VALOR_TOTAL, s.VALOR_LEGALIZADO, s.RETEFUENTE_LEGALIZACION, s.SALDO_LEGALIZACION, s.NUM_PRELIMINAR,
                     CASE s.FONDO WHEN 'ROMA' THEN 'Roma' WHEN 'FONDO' THEN 'Fondo ' + ISNULL(s.FONDO_NUMERO, '') WHEN 'NOTA' THEN 'Nota ' + ISNULL(s.FONDO_NUMERO, '')
+                         WHEN 'TARJETA' THEN 'Tarjeta de crédito ' + ISNULL(s.FONDO_NUMERO, '')
                          WHEN 'FONDO_ROMA' THEN 'Fondo Roma' WHEN 'FONDO_PROVEEDORES' THEN 'Fondo proveedores' ELSE '' END AS FONDO,
                     CONVERT(varchar(10), s.FECHA_FACTURA, 120) AS FECHA_FACTURA,
                     s.NUM_CONTABILIZACION, s.NUM_COMPENSACION, s.NUM_COMPROBANTE_ZP,
