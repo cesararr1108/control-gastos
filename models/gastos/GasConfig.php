@@ -90,8 +90,16 @@ class GasConfig
     const PUSH_ENVIAR_ORGANIZACION = true;
     /** Ruta a cacert.pem si el servidor no reconoce el certificado de la API ('' = el del sistema). */
     const PUSH_CAINFO  = '';
-    /** URL pública (https) de views/gastos/, para que la notificación abra la solicitud. */
-    const URL_MODULO   = '';            // p. ej. 'https://app.pwmultiroma.com/views/gastos/'
+    /**
+     * Enlace (https) que abre la solicitud desde la notificación: «xxx» se reemplaza por el número de la
+     * solicitud. También vale solo la carpeta views/gastos/ (se le agrega solicitud.php?id=N).
+     */
+    const URL_MODULO   = 'https://www.pwmultiroma.com/calidad/views/gastos/solicitud.php?id=xxx';
+    /**
+     * Carpeta pública (https) de las imágenes de las notificaciones (lib/img/gastos/notificaciones/).
+     * Vacía = se deduce de URL_MODULO: https://www.pwmultiroma.com/calidad/lib/img/gastos/notificaciones/
+     */
+    const URL_IMAGENES_PUSH = '';
 
     /**
      * Configuración web de Firebase y llave VAPID para registrar el navegador de cada usuario en la

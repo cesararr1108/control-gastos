@@ -45,12 +45,14 @@ class GasNotificaciones
                 }
                 $emails = self::emailsResponsables($paso, $sol, $actorId);
                 $pasoNombre = $paso['NOMBRE'];
-                $titulo = $evento === 'devuelta' ? "$codigo devuelta para corrección" : "$codigo: te toca actuar";
+                $clave  = $evento === 'devuelta' ? 'devuelta' : self::claveAccion($paso['ACCION']);
+                $titulo = $codigo . ' · ' . self::$TITULOS[$clave];
                 $cuerpo = '«' . $paso['NOMBRE'] . '»' . ($detalle !== '' ? ' — ' . $detalle : '');
             } elseif (in_array($sol['ESTADO'], array('FINALIZADA', 'RECHAZADA'), true)) {
                 $emails = self::emailsUsuarios('ID = ' . (int) $sol['USUARIO_ID'], $actorId);
                 $pasoNombre = $sol['ESTADO'] === 'FINALIZADA' ? 'Finalizada' : 'Rechazada';
-                $titulo = $codigo . ($sol['ESTADO'] === 'FINALIZADA' ? ' finalizada' : ' rechazada');
+                $clave  = $sol['ESTADO'] === 'FINALIZADA' ? 'finalizada' : 'rechazada';
+                $titulo = $codigo . ' · ' . self::$TITULOS[$clave];
                 $cuerpo = $sol['ESTADO'] === 'FINALIZADA'
                     ? 'Tu solicitud completó todos los pasos.'
                     : 'Tu solicitud fue rechazada' . ($sol['MOTIVO_CIERRE'] ? ': ' . $sol['MOTIVO_CIERRE'] : '.');
@@ -61,7 +63,7 @@ class GasNotificaciones
                 self::registrar($solId, $pasoNombre, $sol['ORGANIZACION_VENTA'], array(), 0, null, 'Sin destinatarios: nadie con correo válido debe hacer este paso (o solo quien lo acaba de hacer).');
                 return;
             }
-            self::enviar($emails, $titulo, $cuerpo, $solId, 'gas-' . (int) $solId . '-' . date('YmdHis') . '-' . mt_rand(100, 999), $sol['ORGANIZACION_VENTA'], $pasoNombre);
+            self::enviar($emails, $titulo, $cuerpo, $solId, 'gas-' . (int) $solId . '-' . date('YmdHis') . '-' . mt_rand(100, 999), $sol['ORGANIZACION_VENTA'], $pasoNombre, $clave);
         } catch (Exception $e) {
             error_log('[gastos] notificación de la solicitud ' . (int) $solId . ': ' . $e->getMessage());
         }
@@ -138,12 +140,16 @@ class GasNotificaciones
     }
 
     /** POST /api/v1/notificaciones. */
-    private static function enviar($emails, $titulo, $cuerpo, $solId, $idempotencia, $org, $pasoNombre)
+    private static function enviar($emails, $titulo, $cuerpo, $solId, $idempotencia, $org, $pasoNombre, $clave)
     {
         $notif = array('titulo' => self::corto($titulo, 150), 'cuerpo' => self::corto($cuerpo, 1000));
         $url = self::urlSolicitud($solId);
         if ($url !== '') {
             $notif['url'] = $url;
+        }
+        $img = self::urlImagen($clave);
+        if ($img !== '') {
+            $notif['imagen'] = $img;
         }
         $r = self::llamar('POST', '/api/v1/notificaciones', self::conOrganizacion(array(
             'destinatarios' => array('emails' => array_values($emails)),
@@ -226,14 +232,60 @@ class GasNotificaciones
         return true;
     }
 
-    /** https://…/views/gastos/solicitud.php?id=N, o '' si URL_MODULO no está configurada con https. */
+    /** Título de la notificación e imagen (lib/img/gastos/notificaciones/<clave>.png) según la acción. */
+    public static $TITULOS = array(
+        'autorizar'    => 'Autorizar cotización',
+        'aprobar'      => 'Aprobación pendiente',
+        'legalizar'    => 'Legaliza tu gasto',
+        'contabilizar' => 'Contabilizar y causar',
+        'pagar'        => 'Pago pendiente',
+        'devuelta'     => 'Devuelta para corrección',
+        'finalizada'   => 'Solicitud finalizada',
+        'rechazada'    => 'Solicitud rechazada',
+        'pendiente'    => 'Te toca actuar',
+    );
+
+    /** Acción del paso -> clave de título e imagen. */
+    public static function claveAccion($accion)
+    {
+        $m = array('AUTORIZAR_COTIZACION' => 'autorizar', 'APROBAR' => 'aprobar', 'MONTAR_PRELIMINAR' => 'legalizar',
+            'CONTABILIZAR' => 'contabilizar', 'PAGAR' => 'pagar');
+        return isset($m[$accion]) ? $m[$accion] : 'pendiente';
+    }
+
+    /**
+     * Enlace que abre la solicitud. URL_MODULO puede ser la plantilla completa con «xxx» (o «{id}») donde va
+     * el número: 'https://www.pwmultiroma.com/calidad/views/gastos/solicitud.php?id=xxx'; o solo la carpeta
+     * views/gastos/ (se le agrega solicitud.php?id=N). '' si no está configurada con https.
+     */
     public static function urlSolicitud($solId)
     {
-        $base = GasConfig::URL_MODULO;
+        $base = trim(GasConfig::URL_MODULO);
         if (stripos($base, 'https://') !== 0) {
             return '';
         }
+        if (strpos($base, 'xxx') !== false || strpos($base, '{id}') !== false) {
+            return str_replace(array('{id}', 'xxx'), (string) (int) $solId, $base);
+        }
         return rtrim($base, '/') . '/solicitud.php?id=' . (int) $solId;
+    }
+
+    /**
+     * URL pública (https) de la imagen de la notificación. Se toma de GasConfig::URL_IMAGENES_PUSH si existe;
+     * si no, se deduce de URL_MODULO (lo que va antes de /views/ + /lib/img/gastos/notificaciones/).
+     */
+    public static function urlImagen($clave)
+    {
+        $base = trim((string) self::cfg('URL_IMAGENES_PUSH', ''));
+        if ($base === '') {
+            $mod = trim(GasConfig::URL_MODULO);
+            $i = stripos($mod, '/views/');
+            $base = $i !== false ? substr($mod, 0, $i) . '/lib/img/gastos/notificaciones/' : '';
+        }
+        if (stripos($base, 'https://') !== 0 || !isset(self::$TITULOS[$clave])) {
+            return '';
+        }
+        return rtrim($base, '/') . '/' . $clave . '.png';
     }
 
     /** Llamada JSON a la API. Devuelve array(codigo, cuerpo); codigo 0 = sin respuesta. */
@@ -338,6 +390,10 @@ class GasNotificaciones
             $email ? $email . ' — las notificaciones se envían a los dispositivos registrados con este correo en la API.' : 'Tu usuario no tiene un correo válido.');
         $r[] = array('Enlace de la notificación (URL_MODULO)', stripos(GasConfig::URL_MODULO, 'https://') === 0 ? 'ok' : 'aviso',
             stripos(GasConfig::URL_MODULO, 'https://') === 0 ? 'Abre ' . self::urlSolicitud(123) : 'Vacía o sin https: la notificación llega, pero al tocarla no abre la solicitud.');
+        $img = self::urlImagen('aprobar');
+        $r[] = array('Imagen de la notificación', $img !== '' ? 'ok' : 'aviso',
+            $img !== '' ? 'Ejemplo: ' . $img . ' — ábrela en el navegador: debe verse (cópiale al servidor la carpeta lib/img/gastos/notificaciones/).'
+                : 'Sin imagen: configura URL_MODULO con https (o GasConfig::URL_IMAGENES_PUSH).');
         $r[] = array('Registro de dispositivos desde este módulo ($FIREBASE_WEB)', GasConfig::$FIREBASE_WEB ? 'ok' : 'aviso',
             GasConfig::$FIREBASE_WEB ? 'Configurado: cada usuario ve «Activar notificaciones» y su navegador o celular queda registrado.'
                 : 'Vacío: este módulo no registra dispositivos. Solo llegarán avisos a quien ya tenga su navegador o celular registrado en la API con su correo (p. ej. desde otra aplicación).');
@@ -363,7 +419,8 @@ class GasNotificaciones
         }
         $r = self::llamar('POST', '/api/v1/notificaciones', self::conOrganizacion(array(
             'destinatarios' => array('emails' => array($email)),
-            'notificacion'  => array('titulo' => 'Prueba · Control de gastos', 'cuerpo' => 'Si ves este mensaje, las notificaciones funcionan.'),
+            'notificacion'  => array_filter(array('titulo' => 'Prueba · Control de gastos', 'cuerpo' => 'Si ves este mensaje, las notificaciones funcionan.',
+                'url' => self::urlSolicitud(0) !== '' ? preg_replace('/solicitud\.php.*$/', 'index.php', self::urlSolicitud(0)) : '', 'imagen' => self::urlImagen('aprobar'))),
             'data'          => array('tipo' => 'gastos-prueba'),
             'prioridad'     => 'high',
         ), $u['org']), 'gas-prueba-' . date('YmdHis') . '-' . mt_rand(100, 999));
