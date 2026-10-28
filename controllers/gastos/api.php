@@ -60,6 +60,8 @@ $RUTAS = array(
     'notificaciones.registrar' => array('GasNotificacionesController', 'registrar', 'POST', false),
     'notificaciones.diagnostico' => array('GasNotificacionesController', 'diagnostico', 'POST', true),
     'notificaciones.probar'    => array('GasNotificacionesController', 'probar', 'POST', true),
+    'notificaciones.destinatarios' => array('GasNotificacionesController', 'destinatarios', 'POST', true),
+    'notificaciones.ultimos'   => array('GasNotificacionesController', 'ultimos', 'POST', true),
 );
 
 /** ¿El usuario de la sesión es administrador? (solo ellos ven el detalle técnico de un error). */

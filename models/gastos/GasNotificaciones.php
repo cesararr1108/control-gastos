@@ -38,16 +38,18 @@ class GasNotificaciones
             $detalle = implode(' · ', array_filter(array($quien, $sol['PROCESO'])));
 
             if ($sol['ESTADO'] === 'EN_CURSO') {
-                $paso = GasDb::row("SELECT p.NOMBRE, p.RESPONSABLE_TIPO, p.ROL_ID, p.USUARIO_ID FROM T_GAS_SOLICITUD_PASOS p
+                $paso = GasDb::row("SELECT p.NOMBRE, p.ACCION, p.RESPONSABLE_TIPO, p.ROL_ID, p.USUARIO_ID FROM T_GAS_SOLICITUD_PASOS p
                                      WHERE p.SOLICITUD_ID = " . (int) $solId . " AND p.ESTADO = 'ACTUAL'");
                 if (!$paso) {
                     return;
                 }
                 $emails = self::emailsResponsables($paso, $sol, $actorId);
+                $pasoNombre = $paso['NOMBRE'];
                 $titulo = $evento === 'devuelta' ? "$codigo devuelta para corrección" : "$codigo: te toca actuar";
                 $cuerpo = '«' . $paso['NOMBRE'] . '»' . ($detalle !== '' ? ' — ' . $detalle : '');
             } elseif (in_array($sol['ESTADO'], array('FINALIZADA', 'RECHAZADA'), true)) {
                 $emails = self::emailsUsuarios('ID = ' . (int) $sol['USUARIO_ID'], $actorId);
+                $pasoNombre = $sol['ESTADO'] === 'FINALIZADA' ? 'Finalizada' : 'Rechazada';
                 $titulo = $codigo . ($sol['ESTADO'] === 'FINALIZADA' ? ' finalizada' : ' rechazada');
                 $cuerpo = $sol['ESTADO'] === 'FINALIZADA'
                     ? 'Tu solicitud completó todos los pasos.'
@@ -56,26 +58,69 @@ class GasNotificaciones
                 return;
             }
             if (!$emails) {
+                self::registrar($solId, $pasoNombre, $sol['ORGANIZACION_VENTA'], array(), 0, null, 'Sin destinatarios: nadie con correo válido debe hacer este paso (o solo quien lo acaba de hacer).');
                 return;
             }
-            self::enviar($emails, $titulo, $cuerpo, $solId, 'gas-' . (int) $solId . '-' . date('YmdHis') . '-' . mt_rand(100, 999), $sol['ORGANIZACION_VENTA']);
+            self::enviar($emails, $titulo, $cuerpo, $solId, 'gas-' . (int) $solId . '-' . date('YmdHis') . '-' . mt_rand(100, 999), $sol['ORGANIZACION_VENTA'], $pasoNombre);
         } catch (Exception $e) {
             error_log('[gastos] notificación de la solicitud ' . (int) $solId . ': ' . $e->getMessage());
         }
     }
 
-    /** Correos de quien debe ejecutar el paso. */
+    /**
+     * Correos de quien debe ejecutar el paso. En los pasos de aprobación (APROBAR, AUTORIZAR_COTIZACION)
+     * también se avisa a Gerencia administrativa (roles de GasConfig::$ROLES_ADMIN_TITULOS), porque
+     * puede aprobar aunque el paso esté asignado a otro rol (GasSolicitudModel::esResponsable);
+     * nunca al solicitante de la solicitud.
+     */
     private static function emailsResponsables($paso, $sol, $actorId)
     {
+        $out = array();
         switch ($paso['RESPONSABLE_TIPO']) {
             case 'SOLICITANTE':
-                return self::emailsUsuarios('ID = ' . (int) $sol['USUARIO_ID'], $actorId);
+                $out = self::emailsUsuarios('ID = ' . (int) $sol['USUARIO_ID'], $actorId);
+                break;
             case 'USUARIO':
-                return self::emailsUsuarios('ID = ' . (int) $paso['USUARIO_ID'], $actorId);
+                $out = self::emailsUsuarios('ID = ' . (int) $paso['USUARIO_ID'], $actorId);
+                break;
             case 'ROL':
-                return $paso['ROL_ID'] ? self::emailsUsuarios("ESTADO = 'A' AND ROLES_ID = " . (int) $paso['ROL_ID'], $actorId) : array();
+                $out = $paso['ROL_ID'] ? self::emailsUsuarios("ESTADO = 'A' AND ROLES_ID = " . (int) $paso['ROL_ID'], $actorId) : array();
+                break;
         }
-        return array();
+        if (isset($paso['ACCION']) && in_array($paso['ACCION'], GasSolicitudModel::$ACCIONES_APROBACION, true) && GasConfig::$ROLES_ADMIN_TITULOS) {
+            $t = array();
+            foreach (GasConfig::$ROLES_ADMIN_TITULOS as $titulo) {
+                $t[] = 'TITULO LIKE ' . GasDb::str('%' . str_replace(array('[', '%', '_'), array('[[]', '[%]', '[_]'), $titulo) . '%');
+            }
+            $out = array_merge($out, self::emailsUsuarios("ESTADO = 'A' AND ID <> " . (int) $sol['USUARIO_ID']
+                . ' AND ROLES_ID IN (SELECT ID FROM T_ROLES WHERE ' . implode(' OR ', $t) . ')', $actorId));
+        }
+        return array_values(array_unique($out));
+    }
+
+    /**
+     * Quién recibiría el aviso del paso en curso de una solicitud (diagnóstico). Busca por código
+     * (COT-000012) o ID. Devuelve array(codigo, estado, paso, responsable, organizacion, emails).
+     */
+    public static function destinatarios($codigo)
+    {
+        $c = trim((string) $codigo);
+        $id = ctype_digit($c) ? (int) $c : (int) GasDb::scalar('SELECT ID FROM T_GAS_SOLICITUDES WHERE CODIGO = ' . GasDb::str($c, 20));
+        $sol = $id ? GasSolicitudModel::obtener($id) : null;
+        if (!$sol) {
+            throw new GasError('Solicitud no encontrada.');
+        }
+        $actual = null;
+        foreach ($sol['pasos'] as $p) {
+            if ($p['ESTADO'] === 'ACTUAL') {
+                $actual = $p;
+            }
+        }
+        return array(
+            'codigo' => $sol['CODIGO'], 'estado' => $sol['ESTADO'], 'organizacion' => $sol['ORGANIZACION_VENTA'],
+            'paso' => $actual ? $actual['NOMBRE'] : null, 'responsable' => $actual ? $actual['RESPONSABLE'] : null,
+            'emails' => $actual ? self::emailsResponsables($actual, $sol, 0) : array(),
+        );
     }
 
     private static function emailsUsuarios($condicion, $actorId)
@@ -93,7 +138,7 @@ class GasNotificaciones
     }
 
     /** POST /api/v1/notificaciones. */
-    private static function enviar($emails, $titulo, $cuerpo, $solId, $idempotencia, $org)
+    private static function enviar($emails, $titulo, $cuerpo, $solId, $idempotencia, $org, $pasoNombre)
     {
         $notif = array('titulo' => self::corto($titulo, 150), 'cuerpo' => self::corto($cuerpo, 1000));
         $url = self::urlSolicitud($solId);
@@ -108,6 +153,38 @@ class GasNotificaciones
         ), $org), $idempotencia);
         if ($r['codigo'] >= 300) {
             error_log('[gastos] la API de notificaciones respondió ' . $r['codigo'] . ': ' . substr($r['cuerpo'], 0, 300));
+        }
+        $json = json_decode($r['cuerpo'], true);
+        $d = is_array($json) && isset($json['data']) ? $json['data'] : null;
+        self::registrar($solId, $pasoNombre, $org, $emails, $r['codigo'], $d,
+            $d ? 'Estado ' . $d['estado'] . ': ' . (int) $d['exitosos'] . ' de ' . (int) $d['total'] . ' dispositivo(s)' . ((int) $d['total'] === 0 ? ' — ningún dispositivo registrado para estos correos en la organización enviada' : '')
+               : substr(strip_tags($r['cuerpo']), 0, 400));
+    }
+
+    /**
+     * Deja constancia de cada aviso en T_GAS_NOTIFICACIONES (se ve en la pantalla Notificaciones).
+     * Si la tabla aún no existe (falta la migración) no hace nada.
+     */
+    private static function registrar($solId, $paso, $org, $emails, $http, $d, $resultado)
+    {
+        try {
+            GasDb::query('INSERT INTO T_GAS_NOTIFICACIONES (SOLICITUD_ID, PASO_NOMBRE, ORGANIZACION, DESTINATARIOS, HTTP, TOTAL, EXITOSOS, RESULTADO) VALUES ('
+                . (int) $solId . ', ' . GasDb::str($paso, 120) . ', ' . GasDb::str(trim((string) $org), 4) . ', ' . GasDb::str(implode(', ', $emails), 2000) . ', '
+                . (int) $http . ', ' . ($d ? (int) $d['total'] : 'NULL') . ', ' . ($d ? (int) $d['exitosos'] : 'NULL') . ', ' . GasDb::str($resultado, 500) . ')');
+        } catch (Exception $e) {
+            error_log('[gastos] no se pudo registrar la notificación (¿falta database/migracion_notificaciones_log.sql?): ' . $e->getMessage());
+        }
+    }
+
+    /** Últimos avisos enviados (diagnóstico). */
+    public static function ultimos()
+    {
+        try {
+            return GasDb::all("SELECT TOP 40 n.ID, s.CODIGO, n.PASO_NOMBRE, n.ORGANIZACION, n.DESTINATARIOS, n.HTTP, n.TOTAL, n.EXITOSOS, n.RESULTADO,
+                                      CONVERT(varchar(19), n.FECHA, 120) AS FECHA
+                                 FROM T_GAS_NOTIFICACIONES n LEFT JOIN T_GAS_SOLICITUDES s ON s.ID = n.SOLICITUD_ID ORDER BY n.ID DESC");
+        } catch (Exception $e) {
+            return null; // falta la tabla
         }
     }
 
@@ -271,14 +348,18 @@ class GasNotificaciones
      * Envía una notificación de prueba al correo del usuario y devuelve lo que respondió la API
      * con su interpretación (total = dispositivos encontrados para ese correo).
      */
-    public static function probar($u)
+    public static function probar($u, $emailDestino = '', $orgDestino = '')
     {
         if (!self::activa()) {
             throw new GasError('Configura PUSH_URL y la llave de API primero.');
         }
-        $email = self::emailUsuario($u);
-        if (!$email) {
-            throw new GasError('Tu usuario no tiene un correo válido en T_USUARIOS.');
+        // Por defecto, a uno mismo; un administrador puede probar con el correo de otra persona y otra organización.
+        $email = trim((string) $emailDestino) !== '' ? strtolower(trim($emailDestino)) : self::emailUsuario($u);
+        if (!$email || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            throw new GasError('Indica un correo válido.');
+        }
+        if (trim((string) $orgDestino) !== '') {
+            $u['org'] = $orgDestino;
         }
         $r = self::llamar('POST', '/api/v1/notificaciones', self::conOrganizacion(array(
             'destinatarios' => array('emails' => array($email)),
@@ -298,7 +379,7 @@ class GasNotificaciones
         );
         if ($r['codigo'] < 300 && $d) {
             if ((int) $d['total'] === 0) {
-                $msg = 'La API respondió bien, pero tu correo no tiene ningún dispositivo registrado: por eso no llega nada. '
+                $msg = 'La API respondió bien, pero ese correo no tiene ningún dispositivo registrado en la organización enviada: por eso no llega nada. '
                     . 'Registra tu navegador o celular (configura $FIREBASE_WEB para que el módulo lo haga, o regístralo desde la otra aplicación con el mismo correo).';
                 $estado = 'aviso';
             } elseif ((int) $d['exitosos'] > 0) {
@@ -315,7 +396,7 @@ class GasNotificaciones
             $msg = isset($explicacion[$r['codigo']]) ? $explicacion[$r['codigo']] : 'La API respondió con un error.';
             $estado = 'error';
         }
-        return array('estado' => $estado, 'mensaje' => $msg, 'email' => $email, 'http' => $r['codigo'],
+        return array('estado' => $estado, 'mensaje' => $msg, 'email' => $email, 'organizacion' => strtoupper(trim((string) $u['org'])), 'http' => $r['codigo'],
             'respuesta' => is_array($json) ? $json : substr(strip_tags($r['cuerpo']), 0, 500));
     }
 
