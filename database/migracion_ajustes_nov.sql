@@ -29,6 +29,17 @@ GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_T_GAS_CENTROS_SOL')
   CREATE NONCLUSTERED INDEX IX_T_GAS_CENTROS_SOL ON dbo.T_GAS_CENTROS_SOLICITUD (SOLICITUD_ID);
 GO
+/* Etapa del reparto: ANTICIPO (anticipo por factura) o LEGALIZACION (legalización con factura). */
+IF COL_LENGTH('dbo.T_GAS_CENTROS_SOLICITUD', 'ETAPA') IS NULL
+  ALTER TABLE dbo.T_GAS_CENTROS_SOLICITUD ADD ETAPA varchar(12) NOT NULL CONSTRAINT DF_T_GAS_CENTROS_ETAPA DEFAULT 'LEGALIZACION';
+GO
+/* Qué soporte es cada archivo (p. ej. «14/11/2026 · Hotel Cali» en la legalización de viáticos). */
+IF COL_LENGTH('dbo.T_GAS_ARCHIVOS', 'DESCRIPCION') IS NULL
+  ALTER TABLE dbo.T_GAS_ARCHIVOS ADD DESCRIPCION varchar(200) NULL;
+/* Soporte (T_GAS_ARCHIVOS.ID) de cada ítem de la legalización de viáticos. */
+IF COL_LENGTH('dbo.T_GAS_LEGALIZACION_DETALLE', 'ARCHIVO_ID') IS NULL
+  ALTER TABLE dbo.T_GAS_LEGALIZACION_DETALLE ADD ARCHIVO_ID int NULL;
+GO
 /* Las legalizaciones ya hechas quedan con un solo centro (el de la solicitud) por el valor de la factura. */
 INSERT dbo.T_GAS_CENTROS_SOLICITUD (SOLICITUD_ID, CENTRO_COSTO, VALOR)
 SELECT s.ID, LTRIM(RTRIM(s.CENTRO_COSTOS)), s.VALOR_TOTAL
@@ -69,5 +80,5 @@ SELECT s.ID,
    AND NOT EXISTS (SELECT 1 FROM dbo.T_GAS_SOLICITUD_PASOS z WHERE z.SOLICITUD_ID = s.ID AND z.ACCION = 'PAGAR_SALDO');
 GO
 
-/* 5. Nuevas categorías de archivo (FORMATO_FIRMADO, FINIQUITO, DEVOLUCION_SALDO): caben en CATEGORIA varchar(20). */
+/* 5. Nuevas categorías de archivo (FORMATO_FIRMADO, FINIQUITO, DEVOLUCION_SALDO, SOPORTE_GASTO): caben en CATEGORIA varchar(20). */
 PRINT 'Migración lista.';

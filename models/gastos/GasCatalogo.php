@@ -150,14 +150,15 @@ class GasCatalogo
     }
 
     /**
-     * De dónde sale el pago de una legalización con factura. «Roma» es el valor por defecto;
+     * De dónde sale el pago de una legalización con factura. La empresa (ROMA) es el valor por defecto
+     * y se muestra como «Roma» en la org. 2000 y «MULTIDROGAS» en la 1000 (GasConfig::$NOMBRE_EMPRESA);
      * «Fondo» y «Nota» exigen el número del fondo o de la nota; «Tarjeta» exige los últimos
      * 4 dígitos, el titular y el banco.
      */
-    public static function fondos()
+    public static function fondos($org = null)
     {
         return array(
-            'ROMA'    => 'Roma',
+            'ROMA'    => GasConfig::nombreEmpresa($org),
             'FONDO'   => 'Fondo',
             'NOTA'    => 'Nota',
             'TARJETA' => 'Tarjeta',
@@ -203,11 +204,11 @@ class GasCatalogo
     /**
      * Reparto del valor de la factura entre centros de costo.
      *  $filas  = [ ['centro' => 'CC1', 'valor' => '1.000'], ... ] tal como llegan del formulario
-     *  $total  = valor de la factura (la suma debe ser igual)
+     *  $total  = valor de la factura o del anticipo (la suma debe ser igual); $deQue lo nombra en el mensaje
      *  $existe = función (centro) => bool que dice si el centro existe en T_CENTROS_COSTOS
      * Las filas vacías se ignoran. Devuelve [ ['centro' => .., 'valor' => float], ... ] o lanza GasError.
      */
-    public static function validarCentros($filas, $total, $existe)
+    public static function validarCentros($filas, $total, $existe, $deQue = 'al valor de la factura')
     {
         $out  = array();
         $suma = 0.0;
@@ -241,7 +242,7 @@ class GasCatalogo
             throw new GasError('Indica al menos un centro de costo con su valor.');
         }
         if (abs(round($suma, 2) - round((float) $total, 2)) > 0.009) {
-            throw new GasError('La suma de los centros de costo (' . number_format($suma, 2, ',', '.') . ') debe ser igual al valor de la factura ('
+            throw new GasError('La suma de los centros de costo (' . number_format($suma, 2, ',', '.') . ') debe ser igual ' . $deQue . ' ('
                 . number_format((float) $total, 2, ',', '.') . ').');
         }
         return array_values($out);

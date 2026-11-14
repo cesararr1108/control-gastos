@@ -131,7 +131,7 @@ class GasSolicitudModel
         }
 
         $s['archivos'] = GasDb::all(
-            "SELECT a.ID, a.PASO_ORDEN, a.CATEGORIA, a.NOMBRE_ORIGINAL, a.TAMANO, CONVERT(varchar(19), a.FECHA, 120) AS FECHA
+            "SELECT a.ID, a.PASO_ORDEN, a.CATEGORIA, a.NOMBRE_ORIGINAL, a.DESCRIPCION, a.TAMANO, CONVERT(varchar(19), a.FECHA, 120) AS FECHA
                FROM T_GAS_ARCHIVOS a WHERE a.SOLICITUD_ID = " . $sid . ' ORDER BY a.ID'
         );
         $s['cotizaciones'] = GasDb::all(
@@ -151,16 +151,18 @@ class GasSolicitudModel
               WHERE e.SOLICITUD_ID = " . $sid . ' ORDER BY e.ID DESC'
         );
         $s['legalizacion'] = GasDb::all(
-            'SELECT CONVERT(varchar(10), FECHA, 120) AS FECHA, CENTRO_COSTO, NUM_DOCUMENTO, DETALLE, TIPO_GASTO, VALOR, RETEFUENTE
+            'SELECT CONVERT(varchar(10), FECHA, 120) AS FECHA, CENTRO_COSTO, NUM_DOCUMENTO, DETALLE, TIPO_GASTO, VALOR, RETEFUENTE, ARCHIVO_ID
                FROM T_GAS_LEGALIZACION_DETALLE WHERE SOLICITUD_ID = ' . $sid . ' ORDER BY FECHA, ID'
         );
         $s['viaticos'] = GasDb::all(
             'SELECT CONCEPTO, DESCRIPCION, CANTIDAD, VALOR_UNITARIO, VALOR_TOTAL FROM T_GAS_VIATICOS_DETALLE WHERE SOLICITUD_ID = ' . $sid . ' ORDER BY ID'
         );
-        // Reparto del valor de la factura por centro de costo (legalización con factura).
+        // Reparto por centro de costo: ETAPA = ANTICIPO (anticipo por factura) o LEGALIZACION (legalización con factura).
         $s['centros'] = GasDb::all(
-            'SELECT LTRIM(RTRIM(CENTRO_COSTO)) AS CENTRO, VALOR FROM T_GAS_CENTROS_SOLICITUD WHERE SOLICITUD_ID = ' . $sid . ' ORDER BY ID'
+            'SELECT LTRIM(RTRIM(CENTRO_COSTO)) AS CENTRO, VALOR, ETAPA FROM T_GAS_CENTROS_SOLICITUD WHERE SOLICITUD_ID = ' . $sid . ' ORDER BY ID'
         );
+        // Opciones de «¿De dónde sale el pago?» con el nombre de la empresa de la organización de la solicitud.
+        $s['fondos'] = GasCatalogo::fondos($s['ORGANIZACION_VENTA']);
         // Códigos de los formatos de viáticos de la organización de la solicitud.
         $s['formatos'] = GasConfig::formatosViaticos($s['ORGANIZACION_VENTA']);
         return $s;
@@ -427,13 +429,14 @@ class GasSolicitudModel
                     LTRIM(RTRIM(s.ORGANIZACION_VENTA)) AS ORGANIZACION, LTRIM(RTRIM(s.OFICINA_VENTAS)) AS OFICINA,
                     s.PROCESO, s.DESCRIPCION, s.TERCERO_NIT, s.TERCERO_NOMBRE, s.CARGO, s.CENTRO_COSTOS,
                     s.TIPO_ANTICIPO, s.VALOR_ANTICIPO, s.VALOR_TOTAL, s.VALOR_LEGALIZADO, s.RETEFUENTE_LEGALIZACION, s.SALDO_LEGALIZACION, s.NUM_PRELIMINAR,
-                    CASE s.FONDO WHEN 'ROMA' THEN 'Roma' WHEN 'FONDO' THEN 'Fondo ' + ISNULL(s.FONDO_NUMERO, '') WHEN 'NOTA' THEN 'Nota ' + ISNULL(s.FONDO_NUMERO, '')
+                    CASE s.FONDO WHEN 'ROMA' THEN (CASE LTRIM(RTRIM(s.ORGANIZACION_VENTA)) WHEN '1000' THEN 'MULTIDROGAS' ELSE 'Roma' END) WHEN 'FONDO' THEN 'Fondo ' + ISNULL(s.FONDO_NUMERO, '') WHEN 'NOTA' THEN 'Nota ' + ISNULL(s.FONDO_NUMERO, '')
                          WHEN 'TARJETA' THEN 'Tarjeta ****' + ISNULL(s.TARJETA_ULTIMOS4, '')
                          WHEN 'FONDO_ROMA' THEN 'Fondo Roma' WHEN 'FONDO_PROVEEDORES' THEN 'Fondo proveedores' ELSE '' END AS FONDO,
                     s.TARJETA_TITULAR, s.TARJETA_BANCO,
                     CASE s.REQUIERE_SOPORTE_PAGO WHEN 1 THEN 'Sí' WHEN 0 THEN 'No' ELSE '' END AS REQUIERE_SOPORTE_PAGO,
-                    STUFF((SELECT '; ' + LTRIM(RTRIM(c.CENTRO_COSTO)) + ': ' + CONVERT(varchar(30), c.VALOR)
-                             FROM T_GAS_CENTROS_SOLICITUD c WHERE c.SOLICITUD_ID = s.ID ORDER BY c.ID FOR XML PATH('')), 1, 2, '') AS CENTROS_REPARTO,
+                    STUFF((SELECT '; ' + CASE c.ETAPA WHEN 'ANTICIPO' THEN 'Anticipo ' ELSE '' END + LTRIM(RTRIM(c.CENTRO_COSTO)) + ': ' + CONVERT(varchar(30), c.VALOR)
+                             FROM T_GAS_CENTROS_SOLICITUD c WHERE c.SOLICITUD_ID = s.ID
+                              ORDER BY c.ID FOR XML PATH('')), 1, 2, '') AS CENTROS_REPARTO,
                     CONVERT(varchar(10), s.FECHA_FACTURA, 120) AS FECHA_FACTURA,
                     s.NUM_CONTABILIZACION, s.NUM_COMPENSACION, s.NUM_COMPROBANTE_ZP,
                     CONVERT(varchar(10), s.FECHA_PAGO, 120) AS FECHA_PAGO,

@@ -65,6 +65,24 @@ class GasConfig
         return isset(self::$FORMATOS_VIATICOS[$org]) ? self::$FORMATOS_VIATICOS[$org] : self::$FORMATOS_VIATICOS['2000'];
     }
 
+    /**
+     * Nombre con el que aparece la opción por defecto de «¿De dónde sale el pago?» según la organización
+     * de la solicitud. Las organizaciones que no estén aquí muestran «Roma».
+     */
+    public static $NOMBRE_EMPRESA = array(
+        '1000' => 'MULTIDROGAS',
+        '2000' => 'Roma',
+    );
+
+    public static function nombreEmpresa($org)
+    {
+        $org = trim((string) $org);
+        return isset(self::$NOMBRE_EMPRESA[$org]) ? self::$NOMBRE_EMPRESA[$org] : 'Roma';
+    }
+
+    /** Máximo de caracteres del número de preliminar. */
+    const MAX_PRELIMINAR = 10;
+
     /** Dias que tiene el colaborador para legalizar despues del viaje (clausula del formato de solicitud). */
     const DIAS_LEGALIZACION = 30;
 

@@ -23,6 +23,7 @@ class GasDb extends GasDbReal
     public static $pasos = array();    // filas de T_GAS_SOLICITUD_PASOS (ID => fila)
     public static $archivos = array(); // filas de T_GAS_ARCHIVOS
     public static $centros = array();  // filas de T_GAS_CENTROS_SOLICITUD
+    public static $legal = array();    // filas de T_GAS_LEGALIZACION_DETALLE
     public static $centrosCatalogo = array('CC100', 'CC200', 'CC300');
     public static $log = array();
     private static $snapshot = null;
@@ -100,13 +101,22 @@ class GasDb extends GasDbReal
             }
             return true;
         }
-        if (preg_match("/^DELETE FROM T_GAS_CENTROS_SOLICITUD/", $sql1)) {
-            self::$centros = array();
+        if (preg_match("/^DELETE FROM T_GAS_CENTROS_SOLICITUD WHERE SOLICITUD_ID = \d+ AND ETAPA = '(\w+)'/", $sql1, $m)) {
+            self::$centros = array_values(array_filter(self::$centros, function ($c) use ($m) { return $c['ETAPA'] !== $m[1]; }));
             return true;
         }
-        if (preg_match('/^INSERT INTO T_GAS_CENTROS_SOLICITUD \(SOLICITUD_ID, CENTRO_COSTO, VALOR\) VALUES \((.*)\)$/', $sql1, $m)) {
+        if (preg_match('/^INSERT INTO T_GAS_CENTROS_SOLICITUD \(SOLICITUD_ID, CENTRO_COSTO, VALOR, ETAPA\) VALUES \((.*)\)$/', $sql1, $m)) {
             $v = self::partir($m[1]);
-            self::$centros[] = array('CENTRO' => self::valor($v[1]), 'VALOR' => (float) self::valor($v[2]));
+            self::$centros[] = array('CENTRO' => self::valor($v[1]), 'VALOR' => (float) self::valor($v[2]), 'ETAPA' => self::valor($v[3]));
+            return true;
+        }
+        if (preg_match('/^INSERT INTO T_GAS_LEGALIZACION_DETALLE \(.*\) VALUES \((.*)\)$/', $sql1, $m)) {
+            $v = self::partir($m[1]);
+            self::$legal[] = array('DETALLE' => self::valor($v[4]), 'TIPO_GASTO' => self::valor($v[5]), 'ARCHIVO_ID' => (int) $v[8]);
+            return true;
+        }
+        if (preg_match('/^DELETE FROM T_GAS_LEGALIZACION_DETALLE/', $sql1)) {
+            self::$legal = array();
             return true;
         }
         if (preg_match('/^(DELETE|INSERT|UPDATE) /', $sql1)) {
@@ -156,6 +166,10 @@ class GasDb extends GasDbReal
             }
             return array();
         }
+        if (preg_match("/FROM T_GAS_ARCHIVOS WHERE ID = (\d+) AND SOLICITUD_ID = \d+ AND CATEGORIA = '(\w+)'/", $sql1, $m)) {
+            $a = isset(self::$archivos[(int) $m[1] - 1]) ? self::$archivos[(int) $m[1] - 1] : null;
+            return array(array('N' => $a && $a['CATEGORIA'] === $m[2] ? 1 : 0));
+        }
         if (preg_match("/FROM T_GAS_ARCHIVOS WHERE SOLICITUD_ID = \d+ AND CATEGORIA = '(\w+)'/", $sql1, $m)) {
             $n = 0;
             foreach (self::$archivos as $a) {
@@ -169,12 +183,12 @@ class GasDb extends GasDbReal
         if (preg_match('/FROM T_CAL_PROCESOS WHERE ID = (\d+)/', $sql1, $m)) {
             return array(array('ID' => $m[1], 'PROCESO' => 'Proceso ' . $m[1]));
         }
-        if (preg_match('/FROM T_ROLES WHERE ID = (\d+)/', $sql1)) {
-            return array(array('TITULO' => 'OTRO ROL'));
+        if (preg_match('/FROM T_ROLES WHERE ID = (\d+)/', $sql1, $m)) {
+            return array(array('TITULO' => $m[1] === '0' ? 'AUXILIAR DE VENTAS' : 'OTRO ROL'));
         }
         if (preg_match('/^SET NOCOUNT ON; INSERT INTO T_GAS_ARCHIVOS \(.*\) VALUES \((.*)\); SELECT/', $sql1, $m)) {
             $v = self::partir($m[1]);
-            self::$archivos[] = array('SOLICITUD_ID' => (int) $v[0], 'PASO_ORDEN' => (int) $v[1], 'CATEGORIA' => self::valor($v[2]));
+            self::$archivos[] = array('SOLICITUD_ID' => (int) $v[0], 'PASO_ORDEN' => (int) $v[1], 'CATEGORIA' => self::valor($v[2]), 'DESCRIPCION' => self::valor($v[7]));
             return array(array('id' => count(self::$archivos)));
         }
         throw new Exception('SELECT no soportado por la BD falsa: ' . $sql1);
@@ -246,6 +260,7 @@ function nueva($tipo, $org, $pasos, $extra = array())
     GasDb::$pasos = array();
     GasDb::$archivos = array();
     GasDb::$centros = array();
+    GasDb::$legal = array();
     $i = 0;
     foreach ($pasos as $p) {
         $i++;
@@ -263,6 +278,7 @@ $TES = array('id' => 40, 'rolId' => 7);
 $tercero = array('tercero_nit' => '1020304050', 'tercero_nombre' => 'Ana Pérez', 'tercero_celular' => '3001234567',
     'tercero_email' => 'ana@example.com', 'centro_costos' => 'CC100', 'cargo' => 'Analista');
 $hoy = date('Y-m-d');
+$hoyTxt = date('d/m/Y');
 $viaje = array_merge($tercero, array('tipo_anticipo' => 'VIATICOS', 'proceso_id' => '3', 'requiere_soporte' => 'NO',
     'viaticos_motivo' => 'Visita a cliente', 'viaticos_fecha_inicio' => $hoy, 'viaticos_fecha_fin' => $hoy,
     'presupuesto' => array('ALIMENTACION' => '100000'), 'acepta_descuento' => 'SI'));
@@ -296,8 +312,11 @@ igual('', paso($TES, array('num_comprobante_zp' => 'ZP1', 'fecha_pago' => $hoy))
 igual(0, count(array_filter(GasDb::$archivos, function ($a) { return $a['CATEGORIA'] === 'COMPROBANTE'; })), 'no se registra soporte de pago');
 $legal = array('legal' => array(array('fecha' => $hoy, 'detalle' => 'Bogotá almuerzos', 'centro_costo' => 'CC200', 'v' => array('ALIMENT' => '50000', 'TRANSP' => '80000'))));
 igual('F-FR-0138, fila 1: escribe la ciudad y el detalle.', paso($SOL, array('legal' => array(array('fecha' => $hoy, 'detalle' => '', 'v' => array('TRANSP' => '1000'))))), 'errores de la legalización con el código F-FR-0138');
-igual('Falta el PDF: Soportes de la legalización (un solo PDF).', paso($SOL, $legal), 'legalización sin el PDF de soportes: error');
-igual('', paso($SOL, $legal, array('soportes_legalizacion' => archivo('soportes.pdf'))), 'legalización: gasta 130.000 con anticipo de 100.000');
+igual('F-FR-0138, fila 1: adjunta el soporte del gasto (PDF o imagen).', paso($SOL, $legal), 'cada ítem de la legalización pide su soporte');
+igual('', paso($SOL, $legal, array('legal_sop_0' => archivo('almuerzo.pdf'))), 'legalización con soporte por ítem: gasta 130.000 con anticipo de 100.000');
+igual(array('SOPORTE_GASTO', $hoyTxt . ' · Bogotá almuerzos'), array(GasDb::$archivos[2]['CATEGORIA'], GasDb::$archivos[2]['DESCRIPCION']), 'el soporte queda etiquetado con la fecha y el detalle del gasto');
+igual(array(3, 3), array(GasDb::$legal[0]['ARCHIVO_ID'], GasDb::$legal[1]['ARCHIVO_ID']), 'las líneas del ítem quedan enlazadas a su soporte');
+igual('AUXILIAR DE VENTAS', GasDb::$sol['CARGO'], 'el cargo del formato es el nombre del rol del solicitante');
 igual('-30000.00', GasDb::$sol['SALDO_LEGALIZACION'], 'saldo a favor del empleado: −30.000');
 igual('', paso($GA, array('decision' => 'APROBAR')), 'GA aprueba la legalización');
 igual('', paso($CONT, array('num_compensacion' => '1712345678')), 'Contabilidad hace el cruce (compensación)');
@@ -318,8 +337,13 @@ paso($CONT, array('num_contabilizacion' => '1900000001'));
 igual('Falta el archivo: Soporte de pago.', paso($TES, array('num_comprobante_zp' => 'ZP1', 'fecha_pago' => $hoy)), 'requiere soporte de pago: Tesorería debe subirlo');
 igual('', paso($TES, array('num_comprobante_zp' => 'ZP1', 'fecha_pago' => $hoy), array('comprobante' => archivo('zp.pdf'))), 'Tesorería paga con soporte');
 $legal2 = array('legal' => array(array('fecha' => $hoy, 'detalle' => 'Cali', 'centro_costo' => 'CC100', 'v' => array('TRANSP' => '60000'))));
-igual('Falta el archivo: Comprobante de la transferencia a la empresa (hay saldo a favor de la empresa).', paso($SOL, $legal2, array('soportes_legalizacion' => archivo('s.pdf'))), 'saldo a favor de la empresa pide el comprobante del reintegro');
-igual('', paso($SOL, $legal2, array('soportes_legalizacion' => archivo('s.pdf'), 'comprobante_reintegro' => archivo('r.pdf'))), 'legalización con reintegro');
+igual('Falta el archivo: Comprobante de la transferencia a la empresa (hay saldo a favor de la empresa).', paso($SOL, $legal2, array('legal_sop_0' => archivo('s.pdf'))), 'saldo a favor de la empresa pide el comprobante del reintegro');
+igual('', paso($SOL, $legal2, array('legal_sop_0' => archivo('s.pdf'), 'comprobante_reintegro' => archivo('r.pdf'))), 'legalización con reintegro');
+$idSop = GasDb::$legal[0]['ARCHIVO_ID'];
+paso($GA, array('decision' => 'DEVOLVER', 'comentario' => 'Revisa'));
+$legal2['legal'][0]['archivo_id'] = (string) $idSop;
+igual('', paso($SOL, $legal2, array('comprobante_reintegro' => archivo('r.pdf'))), 'al corregir, el ítem conserva su soporte anterior');
+igual($idSop, GasDb::$legal[0]['ARCHIVO_ID'], 'mismo soporte enlazado');
 paso($GA, array('decision' => 'APROBAR'));
 igual('', paso($CONT, array('num_compensacion' => '1900000001')), 'compensación');
 igual('FINALIZADA', GasDb::$sol['ESTADO'], 'sin saldo a favor del empleado finaliza tras el cruce');
@@ -340,6 +364,7 @@ $FLUJO_FACTURA = array(
     array('PAGAR', 'ROL', 7, 'SIEMPRE'),
 );
 nueva('FACTURA', '2000', $FLUJO_FACTURA);
+igual('El número de preliminar debe tener máximo 10 caracteres.', paso($SOL, array_merge($tercero, array('num_preliminar' => '12345678901', 'requiere_soporte' => 'NO'))), 'número de preliminar de 11 caracteres: error');
 $fac = array_merge($tercero, array('num_preliminar' => 'P-1', 'valor_total' => '1000000', 'fecha_factura' => $hoy, 'proceso_id' => '3',
     'fondo' => 'TARJETA', 'tarjeta_ultimos4' => '4321', 'tarjeta_titular' => 'Ana Pérez', 'tarjeta_banco' => 'Davivienda',
     'centros' => array(array('centro' => 'CC100', 'valor' => '600000'), array('centro' => 'CC200', 'valor' => '400000'))));
@@ -351,7 +376,7 @@ igual('Tarjeta: indica el banco.', paso($SOL, array_merge($fac, array('tarjeta_b
 igual(true, contiene(paso($SOL, array_merge($fac, array('centros' => array(array('centro' => 'CC100', 'valor' => '600000')))), $f), 'debe ser igual al valor de la factura'), 'centros que no suman la factura: error');
 igual('', paso($SOL, $fac, $f), 'legalización con tarjeta y dos centros de costo');
 igual(array('4321', 'Ana Pérez', 'Davivienda', 'TARJETA'), array(GasDb::$sol['TARJETA_ULTIMOS4'], GasDb::$sol['TARJETA_TITULAR'], GasDb::$sol['TARJETA_BANCO'], GasDb::$sol['FONDO']), 'guarda los datos de la tarjeta');
-igual(array(array('CENTRO' => 'CC100', 'VALOR' => 600000.0), array('CENTRO' => 'CC200', 'VALOR' => 400000.0)), GasDb::$centros, 'guarda el reparto por centros');
+igual(array(array('CENTRO' => 'CC100', 'VALOR' => 600000.0, 'ETAPA' => 'LEGALIZACION'), array('CENTRO' => 'CC200', 'VALOR' => 400000.0, 'ETAPA' => 'LEGALIZACION')), GasDb::$centros, 'guarda el reparto por centros');
 igual('CC100', GasDb::$sol['CENTRO_COSTOS'], 'el centro principal es el primero del reparto');
 igual('1', GasDb::$sol['REQUIERE_SOPORTE_PAGO'], 'guarda «requiere soporte de pago»');
 paso($GA, array('decision' => 'APROBAR'));
@@ -367,6 +392,26 @@ $roma = array_merge($fac, array('fondo' => 'ROMA', 'tarjeta_ultimos4' => '', 're
 igual('', paso($SOL, $roma, $f), 'Roma con un solo centro de costo');
 igual(null, GasDb::$sol['TARJETA_ULTIMOS4'], 'sin datos de tarjeta');
 igual('CC300', GasDb::$sol['CENTRO_COSTOS'], 'centro de costo del reparto');
+
+echo "Anticipo por factura: varios centros de costo\n";
+nueva('ANTICIPO', '1000', array(
+    array('SOLICITAR_ANTICIPO', 'SOLICITANTE', null, 'SIEMPRE'),
+    array('APROBAR', 'ROL', 5, 'SIEMPRE'),
+    array('MONTAR_PRELIMINAR', 'SOLICITANTE', null, 'SIEMPRE'),
+));
+$antFac = array_merge($tercero, array('tipo_anticipo' => 'FACTURA', 'proceso_id' => '3', 'requiere_soporte' => 'NO', 'descripcion' => 'Repuestos',
+    'valor_anticipo' => '300.000', 'centros' => array(array('centro' => 'CC100', 'valor' => '100000'), array('centro' => 'CC300', 'valor' => '100000'))));
+unset($antFac['centro_costos']);
+igual('La suma de los centros de costo (200.000,00) debe ser igual al valor del anticipo (300.000,00).', paso($SOL, $antFac), 'los centros deben sumar el valor del anticipo');
+$antFac['centros'][1]['valor'] = '200000';
+igual('', paso($SOL, $antFac), 'anticipo por factura con dos centros de costo');
+igual(array('ANTICIPO', 'ANTICIPO'), array(GasDb::$centros[0]['ETAPA'], GasDb::$centros[1]['ETAPA']), 'el reparto queda en la etapa ANTICIPO');
+paso($GA, array('decision' => 'APROBAR'));
+$legFac = array_merge($tercero, array('num_preliminar' => 'P-2', 'valor_total' => '280000', 'fecha_factura' => $hoy, 'fondo' => 'ROMA',
+    'centros' => array(array('centro' => 'CC200', 'valor' => '280000'))));
+igual('', paso($SOL, $legFac, array('factura_pdf' => archivo('f.pdf'))), 'la legalización tiene su propio reparto');
+igual(array('ANTICIPO', 'ANTICIPO', 'LEGALIZACION'), array_map(function ($c) { return $c['ETAPA']; }, GasDb::$centros), 'se conservan el reparto del anticipo y el de la legalización');
+igual('Elige de dónde sale el pago: MULTIDROGAS, Fondo, Nota, Tarjeta.', 'Elige de dónde sale el pago: ' . implode(', ', GasCatalogo::fondos('1000')) . '.', 'org. 1000: la opción por defecto se llama MULTIDROGAS');
 
 echo "Cotización: legalizar directo reparte por centros de costo y no pide el centro del tercero\n";
 nueva('COTIZACION', '1000', array(

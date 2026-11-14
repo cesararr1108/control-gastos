@@ -126,7 +126,8 @@ flowchart TD
 - **Legalización (viáticos):** en el paso del preliminar, en lugar de la factura y el número de preliminar se diligencia el **formato de legalización (F-FR-024 / F-FR-0138)**, también en un modal con el diseño del formato:
   - filas con fecha, centro de costo, doc y ciudad y detalles;
   - un valor en una o más columnas (Transp, Bus/taxis, Hotel, Aliment, Atención, Gasolina, Servicios, Otros) y el total diario de la fila;
-  - todos los soportes, incluido el comprobante de reintegro si lo hay, se suben en **un solo PDF**.
+  - una columna **Soporte** por ítem: cada gasto lleva su propio soporte (factura o recibo, PDF o imagen), obligatorio. Al corregir una devolución se conserva el soporte anterior si no se cambia;
+  - si el saldo es a favor de la empresa, el comprobante de la transferencia se adjunta aparte.
 
   El sistema calcula:
   - **retefuente descontada:** 2,5 % de cada valor de hotel o alimentación superior a $110.000;
@@ -144,9 +145,13 @@ flowchart TD
   - en el formato de solicitud se muestra la tabla del nivel y se avisa si la alimentación supera *días × tope diario*; si se presupuesta hospedaje, se recuerda que la empresa paga directamente los hoteles y se avisa si supera *noches × tarifa única*;
   - en el de legalización se avisa por cada día en que la alimentación supera el tope diario y por cada hotel sobre la tarifa por noche;
   - Gerencia ve los mismos avisos en el detalle para aprobar o devolver.
-- **Legalización con factura:** además del número de preliminar, la **fecha de factura**, el valor y la factura en PDF, se indica:
-  - **de dónde sale el pago**: **Roma** (por defecto), **Fondo** o **Nota** (con su número) o **Tarjeta** (con los **últimos 4 dígitos**, el **titular** y el **banco**). Tesorería lo ve al pagar;
-  - **centros de costo**: el valor de la factura se reparte entre uno o más centros (botón **«+ Agregar centro de costo»**); la suma debe ser igual al valor de la factura. Se guarda en `T_GAS_CENTROS_SOLICITUD`.
+- **Anticipo por factura:** el valor del anticipo se reparte entre uno o más **centros de costo** (la suma = valor del anticipo).
+- **Cargo** en el formato de solicitud de viáticos: es el **nombre del rol** del solicitante (no se edita).
+- **Legalización con factura:** además del número de preliminar (**máximo 10 caracteres**), la **fecha de factura**, el valor y la factura en PDF, se indica:
+  - **de dónde sale el pago**: la empresa por defecto (**Roma** en la org. 2000, **MULTIDROGAS** en la 1000; `GasConfig::$NOMBRE_EMPRESA`), **Fondo** o **Nota** (con su número) o **Tarjeta** (con los **últimos 4 dígitos**, el **titular** y el **banco**). Tesorería lo ve al pagar;
+  - **centros de costo**: el valor de la factura se reparte entre uno o más centros (botón **«+ Agregar centro de costo»**); la suma debe ser igual al valor de la factura. Se guarda en `T_GAS_CENTROS_SOLICITUD` (`ETAPA` = `ANTICIPO` o `LEGALIZACION`).
+- Los selects de **centro de costo** usan **Select2** (con buscador).
+- Al revisar una solicitud, cada adjunto lleva una **etiqueta** que dice qué soporte es (Factura, Contrato, Finiquito, «Soporte del gasto: 14/11/2026 · Hotel Cali»…).
 
 Los valores (tope y tasa de retefuente, días de plazo) se configuran en `GasConfig`.
 
