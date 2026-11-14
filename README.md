@@ -18,18 +18,22 @@ views/gastos/                  index (bandeja, tarjetas, historial + Excel), sol
 lib/js/gastos/                 gastos.js (núcleo), pasos.js (formularios), bandeja/solicitud/dashboard/flujos.js
 uploads/gastos/                PDF subidos (bloqueado por .htaccess; se descargan por la API)
 tests/logica.php               Pruebas sin base de datos
+tests/motor.php                Flujos completos con una base de datos simulada
 ```
 
 ## Instalación
 
 1. **Copia** las carpetas al proyecto respetando las rutas (`models/`, `controllers/`, `views/`, `lib/js/`, `uploads/`).
    `lib/js/servicios.js` es el que ya tienes: las vistas lo cargan desde `../../lib/js/servicios.js`.
-2. **Base de datos:** ejecuta `database/gastos.sql` en SQL Server (es re-ejecutable).
+2. **Base de datos:** ejecuta `database/gastos.sql` en SQL Server (es re-ejecutable). Si ya tenías el módulo instalado,
+   ejecuta además `database/migracion_ajustes_nov.sql` (tarjeta, reparto por centros de costo, devolución del saldo al
+   empleado y el paso «Devolver saldo al empleado» en los flujos de anticipo).
 3. **Conexión:** `GasDb` usa la función que ya tienes: `conectar()` de `models/funciones.php` (se configura en
    `GasConfig::$FUNCIONES_CONEXION` y `GasConfig::ARCHIVO_CONEXION`). Si devuelve el enlace de `mssql_connect`, se usa;
    si no devuelve nada, se usa la última conexión abierta.
 4. **Configuración** en `models/gastos/GasConfig.php`:
-   - `$ROLES_ADMIN`: IDs de `T_ROLES` con permisos de administrador (flujos, historial, dashboard).
+   - `$ROLES_ADMIN`: IDs de `T_ROLES` con permisos de administrador (flujos, historial completo, dashboard).
+   - `$FORMATOS_VIATICOS`: códigos de los formatos de viáticos por organización (1000: F-FR-0137 / F-FR-0138; 2000: F-FR-023 / F-FR-024).
    - `$ROLES_ADMIN_TITULOS`: títulos de rol con los mismos permisos (por defecto `GERENCIA ADMINISTRATIVA`).
    - `$TEMAS`: color de la interfaz por organización (`1000` amarillo suave, `2000` verde azulado).
    - `DB_LATIN1`: `true` si la conexión trabaja en Latin1/cp1252 (lo normal con `Modern_Spanish_CI_AS`).

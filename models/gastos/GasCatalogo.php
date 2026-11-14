@@ -48,12 +48,12 @@ class GasCatalogo
             'SOLICITAR_ANTICIPO' => array(
                 'nombre' => 'Solicitar anticipo', 'actor' => 'SOLICITANTE', 'decide' => false,
                 'tipos'  => array(self::TIPO_ANTICIPO),
-                'ayuda'  => 'Anticipo por factura (valor) o por viáticos (formulario de gastos de viaje), con datos del tercero.',
+                'ayuda'  => 'Anticipo por factura (valor) o por viáticos (formato de solicitud de anticipo de viáticos, impreso, firmado y con el finiquito), con datos del tercero y si requiere soporte de pago.',
             ),
             'MONTAR_PRELIMINAR' => array(
                 'nombre' => 'Legalización', 'actor' => 'SOLICITANTE', 'decide' => false,
                 'tipos'  => array(self::TIPO_COTIZACION, self::TIPO_ANTICIPO, self::TIPO_FACTURA),
-                'ayuda'  => 'El solicitante legaliza el gasto: registra el número de preliminar, la fecha y el valor de la factura y adjunta la factura en PDF (y, si hay, el contrato u otro soporte). En un anticipo por viáticos, en su lugar diligencia la legalización de gastos y sube los soportes en un solo PDF; el sistema calcula el saldo.',
+                'ayuda'  => 'El solicitante legaliza el gasto: registra el número de preliminar, la fecha y el valor de la factura, reparte el valor entre uno o más centros de costo y adjunta la factura en PDF (y, si hay, el contrato u otro soporte). En un anticipo por viáticos, en su lugar diligencia el formato de legalización y sube los soportes en un solo PDF; el sistema calcula el saldo.',
             ),
             'APROBAR' => array(
                 'nombre' => 'Aprobar / rechazar', 'actor' => 'ROL', 'decide' => true,
@@ -63,12 +63,17 @@ class GasCatalogo
             'CONTABILIZAR' => array(
                 'nombre' => 'Contabilizar', 'actor' => 'ROL', 'decide' => false,
                 'tipos'  => array(self::TIPO_COTIZACION, self::TIPO_ANTICIPO, self::TIPO_FACTURA),
-                'ayuda'  => 'Contabilidad monta el número de contabilización (empieza por 19, máx. 10 dígitos) y, en la compensación, el número de compensación; puede adjuntar un archivo o pegar un pantallazo (Ctrl+V).',
+                'ayuda'  => 'Contabilidad monta el número de contabilización (empieza por 19 o 17, máx. 10 dígitos) y, en la compensación, el número de compensación; puede adjuntar un archivo o pegar un pantallazo (Ctrl+V).',
             ),
             'PAGAR' => array(
                 'nombre' => 'Pagar y montar comprobante', 'actor' => 'ROL', 'decide' => false,
                 'tipos'  => array(self::TIPO_COTIZACION, self::TIPO_ANTICIPO, self::TIPO_FACTURA),
-                'ayuda'  => 'Tesorería registra el número de comprobante ZP y sube el comprobante (PDF o imagen; también puede pegar un pantallazo con Ctrl+V). Cierra la solicitud.',
+                'ayuda'  => 'Tesorería registra el número de comprobante ZP y la fecha de pago. Si el solicitante indicó que requiere soporte de pago, sube el soporte (PDF o imagen; también puede pegar un pantallazo con Ctrl+V).',
+            ),
+            'PAGAR_SALDO' => array(
+                'nombre' => 'Devolver saldo al empleado', 'actor' => 'ROL', 'decide' => false,
+                'tipos'  => array(self::TIPO_ANTICIPO),
+                'ayuda'  => 'Tesorería evidencia que se le devolvió al empleado el saldo a su favor de la legalización de viáticos: número de comprobante, fecha y soporte de la transferencia. Úsalo con la condición «Solo si la legalización deja saldo a favor del empleado», después de la compensación de Contabilidad.',
             ),
         );
     }
@@ -83,6 +88,7 @@ class GasCatalogo
             'ANTICIPO_FACTURA'  => 'Solo si el anticipo es por factura',
             'ANTICIPO_VIATICOS' => 'Solo si el anticipo es por viáticos',
             'ANTICIPO_COTIZACION' => 'Solo si el anticipo es por cotización',
+            'SALDO_EMPLEADO'    => 'Solo si la legalización de viáticos deja saldo a favor del empleado',
         );
     }
 
@@ -97,6 +103,8 @@ class GasCatalogo
             case 'ANTICIPO_FACTURA':    return $hay && $tipo === 'FACTURA';
             case 'ANTICIPO_VIATICOS':   return $hay && $tipo === 'VIATICOS';
             case 'ANTICIPO_COTIZACION': return $hay && $tipo === 'COTIZACION';
+            case 'SALDO_EMPLEADO':      return $hay && $tipo === 'VIATICOS' && isset($sol['SALDO_LEGALIZACION'])
+                                            && $sol['SALDO_LEGALIZACION'] !== null && round((float) $sol['SALDO_LEGALIZACION'], 2) < 0;
             default:                    return true; // SIEMPRE
         }
     }
@@ -110,7 +118,7 @@ class GasCatalogo
         );
     }
 
-    /** Conceptos del "valor presupuestado" del formato F-FR-023 (solicitud de viáticos). */
+    /** Conceptos del "valor presupuestado" del formato de solicitud de anticipo de viáticos (F-FR-023 / F-FR-0137). */
     public static function conceptosViaticos()
     {
         return array(
@@ -126,7 +134,7 @@ class GasCatalogo
         );
     }
 
-    /** Columnas de gasto del formato F-FR-024 (legalización de viáticos). */
+    /** Columnas de gasto del formato de legalización de viáticos (F-FR-024 / F-FR-0138). */
     public static function tiposGastoLegalizacion()
     {
         return array(
@@ -143,14 +151,16 @@ class GasCatalogo
 
     /**
      * De dónde sale el pago de una legalización con factura. «Roma» es el valor por defecto;
-     * «Fondo» y «Nota» exigen el número del fondo o de la nota.
+     * «Fondo» y «Nota» exigen el número del fondo o de la nota; «Tarjeta» exige los últimos
+     * 4 dígitos, el titular y el banco.
      */
     public static function fondos()
     {
         return array(
-            'ROMA'  => 'Roma',
-            'FONDO' => 'Fondo',
-            'NOTA'  => 'Nota',
+            'ROMA'    => 'Roma',
+            'FONDO'   => 'Fondo',
+            'NOTA'    => 'Nota',
+            'TARJETA' => 'Tarjeta',
         );
     }
 
@@ -158,6 +168,83 @@ class GasCatalogo
     public static function fondosConNumero()
     {
         return array('FONDO', 'NOTA');
+    }
+
+    /**
+     * Número de contabilización válido: solo dígitos, empieza por 19 o por 17 y tiene máximo 10.
+     * Es la misma regla de pasos.js (Pasos.RE_CONTABILIZACION).
+     */
+    public static function contabilizacionValida($num)
+    {
+        return is_string($num) && preg_match('/^1[79][0-9]{0,8}$/', $num) === 1;
+    }
+
+    /**
+     * Datos de la tarjeta con la que se paga: últimos 4 dígitos, titular y banco (todos obligatorios).
+     * Devuelve array(ultimos4, titular, banco) o lanza GasError.
+     */
+    public static function validarTarjeta($in)
+    {
+        $ult = isset($in['tarjeta_ultimos4']) ? trim($in['tarjeta_ultimos4']) : '';
+        $tit = isset($in['tarjeta_titular']) ? trim($in['tarjeta_titular']) : '';
+        $ban = isset($in['tarjeta_banco']) ? trim($in['tarjeta_banco']) : '';
+        if (!preg_match('/^[0-9]{4}$/', $ult)) {
+            throw new GasError('Tarjeta: escribe los últimos 4 dígitos (solo números).');
+        }
+        if ($tit === '') {
+            throw new GasError('Tarjeta: indica el titular.');
+        }
+        if ($ban === '') {
+            throw new GasError('Tarjeta: indica el banco.');
+        }
+        return array($ult, $tit, $ban);
+    }
+
+    /**
+     * Reparto del valor de la factura entre centros de costo.
+     *  $filas  = [ ['centro' => 'CC1', 'valor' => '1.000'], ... ] tal como llegan del formulario
+     *  $total  = valor de la factura (la suma debe ser igual)
+     *  $existe = función (centro) => bool que dice si el centro existe en T_CENTROS_COSTOS
+     * Las filas vacías se ignoran. Devuelve [ ['centro' => .., 'valor' => float], ... ] o lanza GasError.
+     */
+    public static function validarCentros($filas, $total, $existe)
+    {
+        $out  = array();
+        $suma = 0.0;
+        $n    = 0;
+        foreach (is_array($filas) ? $filas : array() as $f) {
+            if (!is_array($f)) {
+                continue;
+            }
+            $cc    = isset($f['centro']) ? trim($f['centro']) : '';
+            $valor = isset($f['valor']) ? round(GasDb::aNumero($f['valor']), 2) : 0.0;
+            if ($cc === '' && $valor == 0) {
+                continue; // fila vacía
+            }
+            $n++;
+            if ($cc === '') {
+                throw new GasError("Centro de costo $n: selecciónalo de la lista.");
+            }
+            if ($valor <= 0) {
+                throw new GasError("Centro de costo $n ($cc): indica un valor mayor que cero.");
+            }
+            if (isset($out[$cc])) {
+                throw new GasError("El centro de costo $cc está repetido: suma sus valores en una sola fila.");
+            }
+            if (!call_user_func($existe, $cc)) {
+                throw new GasError("El centro de costo «{$cc}» no existe: selecciónalo de la lista.");
+            }
+            $out[$cc] = array('centro' => $cc, 'valor' => $valor);
+            $suma += $valor;
+        }
+        if (!$out) {
+            throw new GasError('Indica al menos un centro de costo con su valor.');
+        }
+        if (abs(round($suma, 2) - round((float) $total, 2)) > 0.009) {
+            throw new GasError('La suma de los centros de costo (' . number_format($suma, 2, ',', '.') . ') debe ser igual al valor de la factura ('
+                . number_format((float) $total, 2, ',', '.') . ').');
+        }
+        return array_values($out);
     }
 
     /** Niveles de T_ROLES_GASTOS_INFO. */

@@ -102,7 +102,7 @@ CREATE TABLE dbo.T_GAS_SOLICITUDES (
   /* Numeros que montan los responsables */
   FECHA_FACTURA        date          NULL,
   PAGO_FONDO           bit           NULL,                -- el pago del preliminar sale de un fondo
-  FONDO                varchar(20)   NULL,                -- ROMA | FONDO | NOTA (antes FONDO_ROMA | FONDO_PROVEEDORES)
+  FONDO                varchar(20)   NULL,                -- ROMA | FONDO | NOTA | TARJETA (antes FONDO_ROMA | FONDO_PROVEEDORES)
   FONDO_NUMERO         varchar(30)   NULL,                -- número del fondo o de la nota (cuando FONDO es FONDO o NOTA)
   VALOR_LEGALIZADO     numeric(15,2) NULL,                -- total legalizado (anticipo por viaticos)
   RETEFUENTE_LEGALIZACION numeric(15,2) NULL,             -- retefuente descontada en la legalizacion (F-FR-024)
@@ -112,6 +112,11 @@ CREATE TABLE dbo.T_GAS_SOLICITUDES (
   NUM_COMPENSACION     varchar(30)   NULL,
   NUM_COMPROBANTE_ZP   varchar(30)   NULL,
   FECHA_PAGO           date          NULL,
+  TARJETA_ULTIMOS4     char(4)       NULL,                -- pago con tarjeta (FONDO = TARJETA)
+  TARJETA_TITULAR      varchar(150)  NULL,
+  TARJETA_BANCO        varchar(80)   NULL,
+  NUM_COMPROBANTE_SALDO varchar(30)  NULL,                -- devolucion del saldo a favor del empleado (viaticos)
+  FECHA_PAGO_SALDO     date          NULL,
 
   FECHA_CREACION       datetime      NOT NULL DEFAULT getdate(),
   FECHA_MODIFICACION   datetime      NULL,
@@ -143,6 +148,11 @@ IF COL_LENGTH('dbo.T_GAS_SOLICITUDES', 'VIATICOS_TEL_FIJO') IS NULL
   ALTER TABLE dbo.T_GAS_SOLICITUDES ADD VIATICOS_TEL_FIJO varchar(20) NULL, VIATICOS_RUTA_SALIDA varchar(150) NULL,
     VIATICOS_TIPO_SALIDA varchar(10) NULL, VIATICOS_RUTA_REGRESO varchar(150) NULL, VIATICOS_TIPO_REGRESO varchar(10) NULL,
     VIATICOS_ACEPTA_DESCUENTO bit NULL;
+/* Pago con tarjeta y devolucion del saldo al empleado. */
+IF COL_LENGTH('dbo.T_GAS_SOLICITUDES', 'TARJETA_ULTIMOS4') IS NULL
+  ALTER TABLE dbo.T_GAS_SOLICITUDES ADD TARJETA_ULTIMOS4 char(4) NULL, TARJETA_TITULAR varchar(150) NULL, TARJETA_BANCO varchar(80) NULL;
+IF COL_LENGTH('dbo.T_GAS_SOLICITUDES', 'NUM_COMPROBANTE_SALDO') IS NULL
+  ALTER TABLE dbo.T_GAS_SOLICITUDES ADD NUM_COMPROBANTE_SALDO varchar(30) NULL, FECHA_PAGO_SALDO date NULL;
 GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_T_GAS_SOLICITUDES_USUARIO')
   CREATE NONCLUSTERED INDEX IX_T_GAS_SOLICITUDES_USUARIO ON dbo.T_GAS_SOLICITUDES (USUARIO_ID, ESTADO);
@@ -230,7 +240,7 @@ CREATE TABLE dbo.T_GAS_ARCHIVOS (
   ID              int IDENTITY(1,1) NOT NULL,
   SOLICITUD_ID    int          NOT NULL,
   PASO_ORDEN      int          NULL,
-  CATEGORIA       varchar(20)  NOT NULL,   -- COTIZACION | FACTURA | LEGALIZACION | SOPORTE_PAGO | PRELIMINAR | COMPROBANTE | CONTRATO | REINTEGRO | SOPORTE_CONTAB
+  CATEGORIA       varchar(20)  NOT NULL,   -- COTIZACION | FACTURA | LEGALIZACION | SOPORTE_PAGO | PRELIMINAR | COMPROBANTE | CONTRATO | REINTEGRO | SOPORTE_CONTAB | FORMATO_FIRMADO | FINIQUITO | DEVOLUCION_SALDO
   NOMBRE_ORIGINAL varchar(200) NOT NULL,
   RUTA            varchar(120) NOT NULL,   -- nombre del archivo dentro de uploads/gastos/
   TAMANO          int          NOT NULL,
@@ -294,6 +304,21 @@ CREATE TABLE dbo.T_GAS_LEGALIZACION_DETALLE (
 );
 GO
 
+/* Reparto del valor de la factura entre centros de costo (legalizacion con factura). */
+IF OBJECT_ID('dbo.T_GAS_CENTROS_SOLICITUD') IS NULL
+CREATE TABLE dbo.T_GAS_CENTROS_SOLICITUD (
+  ID           int IDENTITY(1,1) NOT NULL,
+  SOLICITUD_ID int           NOT NULL,
+  CENTRO_COSTO varchar(40)   NOT NULL,      -- T_CENTROS_COSTOS.CENTRO
+  VALOR        numeric(15,2) NOT NULL,
+  CONSTRAINT PK_T_GAS_CENTROS_SOLICITUD PRIMARY KEY CLUSTERED (ID),
+  CONSTRAINT FK_T_GAS_CENTROS_SOL FOREIGN KEY (SOLICITUD_ID) REFERENCES dbo.T_GAS_SOLICITUDES (ID)
+);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_T_GAS_CENTROS_SOL')
+  CREATE NONCLUSTERED INDEX IX_T_GAS_CENTROS_SOL ON dbo.T_GAS_CENTROS_SOLICITUD (SOLICITUD_ID);
+GO
+
 /* ----------------------------------------------------------------------------
    4. FLUJOS PREDETERMINADOS (generales, para todas las organizaciones)
    Los responsables se buscan por el titulo del rol (T_ROLES.TITULO). Si no hay
@@ -336,7 +361,8 @@ BEGIN
     (@f, 3, 'MONTAR_PRELIMINAR',    'Legalización',   'SOLICITANTE', NULL,    'SIEMPRE'),
     (@f, 4, 'APROBAR',              'Aprobar preliminar / legalizacion',  'ROL',         @rolGA,  'SIEMPRE'),
     (@f, 5, 'CONTABILIZAR',         'Contabilizar',                       'ROL',         @rolCont,'SIEMPRE'),
-    (@f, 6, 'PAGAR',                'Pagar y montar comprobante',         'ROL',         @rolTes, 'SIEMPRE');
+    (@f, 6, 'PAGAR',                'Pagar y montar comprobante',         'ROL',         @rolTes, 'SIEMPRE'),
+    (@f, 7, 'PAGAR_SALDO',          'Devolver saldo al empleado',         'ROL',         @rolTes, 'SALDO_EMPLEADO');
 END
 
 IF NOT EXISTS (SELECT 1 FROM dbo.T_GAS_FLUJOS WHERE TIPO='FACTURA' AND ORGANIZACION_VENTA IS NULL AND NOMBRE='Factura (general)')

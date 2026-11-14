@@ -22,11 +22,13 @@ $inputCls = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-s
 <div id="tabs" class="mb-4 flex flex-wrap gap-1 border-b border-slate-200 text-sm font-semibold">
   <button data-vista="pendientes" class="tab -mb-px border-b-2 px-4 py-2">Por atender</button>
   <button data-vista="mias" class="tab -mb-px border-b-2 px-4 py-2">Mis solicitudes</button>
-  <?php if ($GAS_ADMIN) { ?><button data-vista="historial" class="tab -mb-px border-b-2 px-4 py-2">Historial</button><?php } ?>
+  <!-- Historial: los administradores ven todas; los demás, las que solicitaron o en las que intervinieron -->
+  <button data-vista="historial" class="tab -mb-px border-b-2 px-4 py-2">Historial</button>
 </div>
 
 <!-- Historial: solo consulta al pulsar el botón -->
 <form id="barraHistorial" class="mb-4 hidden flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4">
+  <?php if (!$GAS_ADMIN) { ?><p class="w-full text-xs text-slate-500">Se muestran las solicitudes que hiciste y aquellas en las que interviniste (aprobaste, contabilizaste, pagaste o devolviste).</p><?php } ?>
   <div><label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Desde</label>
     <input type="date" name="desde" required class="<?php echo $inputCls; ?>"></div>
   <div><label class="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Hasta</label>

@@ -47,10 +47,28 @@ class GasConfig
     const RETEFUENTE_TASA = 0.025;
     public static $RETEFUENTE_TIPOS = array('HOTEL', 'ALIMENT');
 
-    /** Dias que tiene el colaborador para legalizar despues del viaje (clausula del F-FR-023). */
+    /**
+     * Códigos de los formatos de viáticos por organización de venta (ses_NumOrg):
+     *  - solicitud:    solicitud de anticipo de viáticos
+     *  - legalizacion: legalización de la solicitud de anticipo de viáticos
+     * Las organizaciones que no estén aquí usan los de la 2000.
+     */
+    public static $FORMATOS_VIATICOS = array(
+        '1000' => array('solicitud' => 'F-FR-0137', 'legalizacion' => 'F-FR-0138'),
+        '2000' => array('solicitud' => 'F-FR-023',  'legalizacion' => 'F-FR-024'),
+    );
+
+    /** Códigos de los formatos de viáticos de una organización (ver $FORMATOS_VIATICOS). */
+    public static function formatosViaticos($org)
+    {
+        $org = trim((string) $org);
+        return isset(self::$FORMATOS_VIATICOS[$org]) ? self::$FORMATOS_VIATICOS[$org] : self::$FORMATOS_VIATICOS['2000'];
+    }
+
+    /** Dias que tiene el colaborador para legalizar despues del viaje (clausula del formato de solicitud). */
     const DIAS_LEGALIZACION = 30;
 
-        /** Tamano maximo por PDF, en MB. */
+    /** Tamano maximo por PDF, en MB. */
     const MAX_PDF_MB = 10;
 
     /**
