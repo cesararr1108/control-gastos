@@ -781,7 +781,7 @@ class GasMotor
                 $sql[] = 'INSERT INTO T_GAS_LEGALIZACION_DETALLE (SOLICITUD_ID, FECHA, CENTRO_COSTO, NUM_DOCUMENTO, DETALLE, TIPO_GASTO, VALOR, RETEFUENTE, ARCHIVO_ID) VALUES ('
                     . (int) $sol['ID'] . ', ' . GasDb::fecha($fecha) . ', ' . GasDb::str($cc, 40) . ', '
                     . GasDb::str(isset($l['documento']) ? $l['documento'] : null, 30) . ', ' . GasDb::str($det, 200) . ', '
-                    . GasDb::str($li[0]) . ', ' . GasDb::num($li[1]) . ', ' . GasDb::num($li[2]) . ', ' . (int) $archivo . ')';
+                    . GasDb::str($li[0]) . ', ' . GasDb::num($li[1]) . ', ' . GasDb::num($li[2]) . ', ' . GasDb::int($archivo) . ')';
             }
             $suma += $totFila;
         }

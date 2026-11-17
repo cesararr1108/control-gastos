@@ -122,7 +122,7 @@ class GasDb extends GasDbReal
         }
         if (preg_match('/^INSERT INTO T_GAS_LEGALIZACION_DETALLE \(.*\) VALUES \((.*)\)$/', $sql1, $m)) {
             $v = self::partir($m[1]);
-            self::$legal[] = array('DETALLE' => self::valor($v[4]), 'TIPO_GASTO' => self::valor($v[5]), 'ARCHIVO_ID' => (int) $v[8]);
+            self::$legal[] = array('DETALLE' => self::valor($v[4]), 'TIPO_GASTO' => self::valor($v[5]), 'ARCHIVO_ID' => strtoupper(trim($v[8])) === 'NULL' ? null : (int) $v[8]);
             return true;
         }
         if (preg_match('/^DELETE FROM T_GAS_LEGALIZACION_DETALLE/', $sql1)) {
@@ -364,6 +364,10 @@ igual('Adjunta el soporte de pago.', paso($TES, array('num_comprobante_zp' => 'Z
 igual('', paso($TES, array('num_comprobante_zp' => 'ZP1', 'fecha_pago' => $hoy), array('comprobante' => archivo('zp.pdf'))), 'Tesorería paga con soporte');
 $legal2 = array('legal' => array(array('fecha' => $hoy, 'detalle' => 'Cali', 'centro_costo' => 'CC100', 'v' => array('TRANSP' => '60000'))));
 igual('Adjunta el comprobante de la transferencia a la empresa (hay saldo a favor de la empresa).', paso($SOL, $legal2, array('legal_soporte_0' => archivo('s.pdf'))), 'saldo a favor de la empresa pide el comprobante del reintegro');
+igual('', paso($SOL, $legal2, array('soportes_legalizacion' => archivo('todos.pdf'), 'comprobante_reintegro' => archivo('r.pdf'))), 'legalización sin soporte por fila pero con el adjunto general: pasa');
+igual(null, GasDb::$legal[0]['ARCHIVO_ID'], 'la fila sin soporte propio no apunta a ningún archivo (NULL, no 0)');
+igual(true, count(array_filter(GasDb::$archivos, function ($a) { return $a['CATEGORIA'] === 'LEGALIZACION'; })) > 0, 'el adjunto general queda registrado');
+paso($GA, array('decision' => 'DEVOLVER', 'comentario' => 'Adjunta cada soporte'));
 igual('', paso($SOL, $legal2, array('legal_soporte_0' => archivo('s.pdf'), 'comprobante_reintegro' => archivo('r.pdf'))), 'legalización con reintegro');
 $idSop = GasDb::$legal[0]['ARCHIVO_ID'];
 paso($GA, array('decision' => 'DEVOLVER', 'comentario' => 'Revisa'));
