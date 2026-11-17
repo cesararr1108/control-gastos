@@ -4,7 +4,7 @@ Ejecutar en este orden (SSMS, conectado a la base indicada):
 
 | # | Archivo | Base | Qué hace |
 |---|---|---|---|
-| 1 | `01_esquema_produccion.sql` | **Producción** | Verifica las tablas de la empresa que necesita el módulo y crea las 10 tablas `T_GAS_*` y los topes de viáticos 2026. No crea flujos. Re-ejecutable. |
+| 1 | `01_esquema_produccion.sql` | **Producción** | Verifica las tablas de la empresa que necesita el módulo y crea las 12 tablas `T_GAS_*` (con las columnas actuales: tarjeta, centros de costo, soporte por fila, devolución del saldo, FTP y notificaciones) y los topes de viáticos 2026. No crea flujos. Re-ejecutable. |
 | 2 | `02_exportar_flujos_CALIDAD.sql` | **Calidad** | Solo lee. Genera el script con los flujos activos y sus pasos (`T_GAS_FLUJOS` / `T_GAS_FLUJO_PASOS`). |
 | 3 | `03_flujos_produccion.sql` | **Producción** | Es el resultado del paso 2 (lo pegas en un archivo nuevo). Inserta los flujos y pasos. Re-ejecutable: no duplica flujos que ya existen. |
 

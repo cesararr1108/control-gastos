@@ -1,6 +1,7 @@
 /* ============================================================================
    CONTROL DE GASTOS - PASO PRODUCCION 1 DE 3: ESQUEMA
-   Crea las tablas T_GAS_* (y los topes de viaticos 2026). NO crea flujos: esos vienen del paso 3,
+   Crea las tablas T_GAS_* con TODAS las columnas actuales (tarjeta, centros de costo, soporte por fila,
+   devolucion del saldo, FTP, notificaciones) y los topes de viaticos 2026. NO crea flujos: esos vienen del paso 3,
    copiados de calidad. Es re-ejecutable: cada objeto se crea solo si no existe.
    Base de datos: ejecutar conectado a la base de PRODUCCION (la que tiene T_USUARIOS, T_ROLES...).
    ============================================================================ */
@@ -116,7 +117,7 @@ CREATE TABLE dbo.T_GAS_SOLICITUDES (
   /* Numeros que montan los responsables */
   FECHA_FACTURA        date          NULL,
   PAGO_FONDO           bit           NULL,                -- el pago del preliminar sale de un fondo
-  FONDO                varchar(20)   NULL,                -- ROMA | FONDO | NOTA (antes FONDO_ROMA | FONDO_PROVEEDORES)
+  FONDO                varchar(20)   NULL,                -- ROMA | FONDO | NOTA | TARJETA (antes FONDO_ROMA | FONDO_PROVEEDORES)
   FONDO_NUMERO         varchar(30)   NULL,                -- número del fondo o de la nota (cuando FONDO es FONDO o NOTA)
   VALOR_LEGALIZADO     numeric(15,2) NULL,                -- total legalizado (anticipo por viaticos)
   RETEFUENTE_LEGALIZACION numeric(15,2) NULL,             -- retefuente descontada en la legalizacion (F-FR-024)
@@ -126,6 +127,11 @@ CREATE TABLE dbo.T_GAS_SOLICITUDES (
   NUM_COMPENSACION     varchar(30)   NULL,
   NUM_COMPROBANTE_ZP   varchar(30)   NULL,
   FECHA_PAGO           date          NULL,
+  TARJETA_ULTIMOS4     char(4)       NULL,                -- pago con tarjeta (FONDO = TARJETA)
+  TARJETA_TITULAR      varchar(150)  NULL,
+  TARJETA_BANCO        varchar(80)   NULL,
+  NUM_COMPROBANTE_SALDO varchar(30)  NULL,                -- devolucion del saldo a favor del empleado (viaticos)
+  FECHA_PAGO_SALDO     date          NULL,
 
   FECHA_CREACION       datetime      NOT NULL DEFAULT getdate(),
   FECHA_MODIFICACION   datetime      NULL,
@@ -157,6 +163,11 @@ IF COL_LENGTH('dbo.T_GAS_SOLICITUDES', 'VIATICOS_TEL_FIJO') IS NULL
   ALTER TABLE dbo.T_GAS_SOLICITUDES ADD VIATICOS_TEL_FIJO varchar(20) NULL, VIATICOS_RUTA_SALIDA varchar(150) NULL,
     VIATICOS_TIPO_SALIDA varchar(10) NULL, VIATICOS_RUTA_REGRESO varchar(150) NULL, VIATICOS_TIPO_REGRESO varchar(10) NULL,
     VIATICOS_ACEPTA_DESCUENTO bit NULL;
+/* Pago con tarjeta y devolucion del saldo al empleado. */
+IF COL_LENGTH('dbo.T_GAS_SOLICITUDES', 'TARJETA_ULTIMOS4') IS NULL
+  ALTER TABLE dbo.T_GAS_SOLICITUDES ADD TARJETA_ULTIMOS4 char(4) NULL, TARJETA_TITULAR varchar(150) NULL, TARJETA_BANCO varchar(80) NULL;
+IF COL_LENGTH('dbo.T_GAS_SOLICITUDES', 'NUM_COMPROBANTE_SALDO') IS NULL
+  ALTER TABLE dbo.T_GAS_SOLICITUDES ADD NUM_COMPROBANTE_SALDO varchar(30) NULL, FECHA_PAGO_SALDO date NULL;
 GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_T_GAS_SOLICITUDES_USUARIO')
   CREATE NONCLUSTERED INDEX IX_T_GAS_SOLICITUDES_USUARIO ON dbo.T_GAS_SOLICITUDES (USUARIO_ID, ESTADO);
@@ -244,9 +255,9 @@ CREATE TABLE dbo.T_GAS_ARCHIVOS (
   ID              int IDENTITY(1,1) NOT NULL,
   SOLICITUD_ID    int          NOT NULL,
   PASO_ORDEN      int          NULL,
-  CATEGORIA       varchar(20)  NOT NULL,   -- COTIZACION | FACTURA | LEGALIZACION | SOPORTE_PAGO | PRELIMINAR | COMPROBANTE | CONTRATO | REINTEGRO | SOPORTE_CONTAB
+  CATEGORIA       varchar(20)  NOT NULL,   -- COTIZACION | FACTURA | LEGALIZACION | SOPORTE_PAGO | PRELIMINAR | COMPROBANTE | CONTRATO | REINTEGRO | SOPORTE_CONTAB | FORMATO_FIRMADO | FINIQUITO | DEVOLUCION_SALDO | SOPORTE_GASTO
   NOMBRE_ORIGINAL varchar(200) NOT NULL,
-  RUTA            varchar(120) NOT NULL,   -- nombre del archivo dentro de uploads/gastos/
+  RUTA            varchar(255) NOT NULL,   -- ruta en el FTP (web/gastos/archivo) o nombre del archivo dentro de uploads/gastos/
   TAMANO          int          NOT NULL,
   USUARIO_ID      int          NOT NULL,
   FECHA           datetime     NOT NULL DEFAULT getdate(),
@@ -303,13 +314,63 @@ CREATE TABLE dbo.T_GAS_LEGALIZACION_DETALLE (
   TIPO_GASTO     varchar(12)   NOT NULL,   -- TRANSP | BUS_TAXIS | HOTEL | ALIMENT | ATENCION | GASOLINA | SERVICIOS | OTROS
   VALOR          numeric(15,2) NOT NULL,
   RETEFUENTE     numeric(15,2) NOT NULL DEFAULT 0,
+  ARCHIVO_ID     int           NULL,       -- soporte propio de la fila (PDF o foto, CATEGORIA = SOPORTE_GASTO)
   CONSTRAINT PK_T_GAS_LEGALIZACION_DETALLE PRIMARY KEY CLUSTERED (ID),
-  CONSTRAINT FK_T_GAS_LEGAL_SOL FOREIGN KEY (SOLICITUD_ID) REFERENCES dbo.T_GAS_SOLICITUDES (ID)
+  CONSTRAINT FK_T_GAS_LEGAL_SOL FOREIGN KEY (SOLICITUD_ID) REFERENCES dbo.T_GAS_SOLICITUDES (ID),
+  CONSTRAINT FK_T_GAS_LEGAL_ARCH FOREIGN KEY (ARCHIVO_ID) REFERENCES dbo.T_GAS_ARCHIVOS (ID)
 );
 GO
+IF COL_LENGTH('dbo.T_GAS_LEGALIZACION_DETALLE', 'ARCHIVO_ID') IS NULL
+  ALTER TABLE dbo.T_GAS_LEGALIZACION_DETALLE ADD ARCHIVO_ID int NULL;
 GO
 
-/* Fin del esquema. Verificacion: deben listarse las 10 tablas T_GAS_*. */
+/* Reparto del valor de la factura entre centros de costo (legalizacion con factura). */
+IF OBJECT_ID('dbo.T_GAS_CENTROS_SOLICITUD') IS NULL
+CREATE TABLE dbo.T_GAS_CENTROS_SOLICITUD (
+  ID           int IDENTITY(1,1) NOT NULL,
+  SOLICITUD_ID int           NOT NULL,
+  CENTRO_COSTO varchar(40)   NOT NULL,      -- T_CENTROS_COSTOS.CENTRO
+  VALOR        numeric(15,2) NOT NULL,
+  CONSTRAINT PK_T_GAS_CENTROS_SOLICITUD PRIMARY KEY CLUSTERED (ID),
+  CONSTRAINT FK_T_GAS_CENTROS_SOL FOREIGN KEY (SOLICITUD_ID) REFERENCES dbo.T_GAS_SOLICITUDES (ID)
+);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_T_GAS_CENTROS_SOL')
+  CREATE NONCLUSTERED INDEX IX_T_GAS_CENTROS_SOL ON dbo.T_GAS_CENTROS_SOLICITUD (SOLICITUD_ID);
+GO
+/* Etapa del reparto: ANTICIPO (anticipo por factura) o LEGALIZACION (legalización con factura). */
+IF COL_LENGTH('dbo.T_GAS_CENTROS_SOLICITUD', 'ETAPA') IS NULL
+  ALTER TABLE dbo.T_GAS_CENTROS_SOLICITUD ADD ETAPA varchar(12) NOT NULL CONSTRAINT DF_T_GAS_CENTROS_ETAPA DEFAULT 'LEGALIZACION';
+GO
+/* Qué soporte es cada archivo (p. ej. «14/11/2026 · Hotel Cali» en la legalización de viáticos). */
+IF COL_LENGTH('dbo.T_GAS_ARCHIVOS', 'DESCRIPCION') IS NULL
+  ALTER TABLE dbo.T_GAS_ARCHIVOS ADD DESCRIPCION varchar(200) NULL;
+/* Soporte (T_GAS_ARCHIVOS.ID) de cada ítem de la legalización de viáticos. */
+IF COL_LENGTH('dbo.T_GAS_LEGALIZACION_DETALLE', 'ARCHIVO_ID') IS NULL
+  ALTER TABLE dbo.T_GAS_LEGALIZACION_DETALLE ADD ARCHIVO_ID int NULL;
+GO
+
+/* Registro de notificaciones push. */
+IF OBJECT_ID('dbo.T_GAS_NOTIFICACIONES') IS NULL
+CREATE TABLE dbo.T_GAS_NOTIFICACIONES (
+  ID            int IDENTITY(1,1) NOT NULL,
+  SOLICITUD_ID  int           NOT NULL,
+  PASO_NOMBRE   varchar(120)  NULL,        -- paso al que llegó la solicitud (o Finalizada / Rechazada)
+  ORGANIZACION  varchar(4)    NULL,        -- organización enviada a la API
+  DESTINATARIOS varchar(2000) NULL,        -- correos a los que se envió
+  HTTP          int           NOT NULL,    -- respuesta de la API (0 = no se llamó)
+  TOTAL         int           NULL,        -- dispositivos encontrados para esos correos
+  EXITOSOS      int           NULL,
+  RESULTADO     varchar(500)  NULL,
+  FECHA         datetime      NOT NULL DEFAULT GETDATE(),
+  CONSTRAINT PK_T_GAS_NOTIFICACIONES PRIMARY KEY CLUSTERED (ID)
+);
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_T_GAS_NOTIFICACIONES_SOL')
+  CREATE NONCLUSTERED INDEX IX_T_GAS_NOTIFICACIONES_SOL ON dbo.T_GAS_NOTIFICACIONES (SOLICITUD_ID);
+GO
+
+/* Fin del esquema. Verificacion: deben listarse 12 tablas T_GAS_* (con T_GAS_CENTROS_SOLICITUD y T_GAS_NOTIFICACIONES). */
 SET NOEXEC OFF;
 SELECT name AS TABLA_CREADA FROM sys.tables WHERE name LIKE 'T_GAS[_]%' ORDER BY name;
 GO
