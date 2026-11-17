@@ -15,6 +15,8 @@ class GasSolicitudModel
         s.VIATICOS_TEL_FIJO, s.VIATICOS_RUTA_SALIDA, s.VIATICOS_TIPO_SALIDA, s.VIATICOS_RUTA_REGRESO, s.VIATICOS_TIPO_REGRESO, s.VIATICOS_ACEPTA_DESCUENTO,
         s.NUM_PRELIMINAR, CONVERT(varchar(10), s.FECHA_FACTURA, 120) AS FECHA_FACTURA, s.PAGO_FONDO, s.FONDO, s.FONDO_NUMERO, s.VALOR_LEGALIZADO, s.RETEFUENTE_LEGALIZACION, s.SALDO_LEGALIZACION, s.NUM_CONTABILIZACION, s.NUM_COMPENSACION, s.NUM_COMPROBANTE_ZP,
         CONVERT(varchar(10), s.FECHA_PAGO, 120) AS FECHA_PAGO,
+        s.TARJETA_ULTIMOS4, s.TARJETA_TITULAR, s.TARJETA_BANCO,
+        s.NUM_COMPROBANTE_SALDO, CONVERT(varchar(10), s.FECHA_PAGO_SALDO, 120) AS FECHA_PAGO_SALDO,
         CONVERT(varchar(19), s.FECHA_CREACION, 120) AS FECHA_CREACION,
         CONVERT(varchar(19), s.FECHA_MODIFICACION, 120) AS FECHA_MODIFICACION,
         CONVERT(varchar(19), s.FECHA_FIN, 120) AS FECHA_FIN";
@@ -130,7 +132,7 @@ class GasSolicitudModel
         }
 
         $s['archivos'] = GasDb::all(
-            "SELECT a.ID, a.PASO_ORDEN, a.CATEGORIA, a.NOMBRE_ORIGINAL, a.TAMANO, CONVERT(varchar(19), a.FECHA, 120) AS FECHA
+            "SELECT a.ID, a.PASO_ORDEN, a.CATEGORIA, a.NOMBRE_ORIGINAL, a.DESCRIPCION, a.TAMANO, CONVERT(varchar(19), a.FECHA, 120) AS FECHA
                FROM T_GAS_ARCHIVOS a WHERE a.SOLICITUD_ID = " . $sid . ' ORDER BY a.ID'
         );
         $s['cotizaciones'] = GasDb::all(
@@ -156,6 +158,14 @@ class GasSolicitudModel
         $s['viaticos'] = GasDb::all(
             'SELECT CONCEPTO, DESCRIPCION, CANTIDAD, VALOR_UNITARIO, VALOR_TOTAL FROM T_GAS_VIATICOS_DETALLE WHERE SOLICITUD_ID = ' . $sid . ' ORDER BY ID'
         );
+        // Reparto por centro de costo: ETAPA = ANTICIPO (anticipo por factura) o LEGALIZACION (legalización con factura).
+        $s['centros'] = GasDb::all(
+            'SELECT LTRIM(RTRIM(CENTRO_COSTO)) AS CENTRO, VALOR, ETAPA FROM T_GAS_CENTROS_SOLICITUD WHERE SOLICITUD_ID = ' . $sid . ' ORDER BY ID'
+        );
+        // Opciones de «¿De dónde sale el pago?» con el nombre de la empresa de la organización de la solicitud.
+        $s['fondos'] = GasCatalogo::fondos($s['ORGANIZACION_VENTA']);
+        // Códigos de los formatos de viáticos de la organización de la solicitud.
+        $s['formatos'] = GasConfig::formatosViaticos($s['ORGANIZACION_VENTA']);
         return $s;
     }
 
@@ -191,10 +201,16 @@ class GasSolicitudModel
         return false;
     }
 
-    /** ¿Puede ver la solicitud? Solicitante, administradores y cualquier responsable/ejecutor de sus pasos. */
+    /**
+     * ¿Puede ver la solicitud? Solicitante, administradores, cualquier responsable/ejecutor de sus pasos
+     * y quien la devolvió para corrección.
+     */
     public static function puedeVer($sol, $u)
     {
         if ((int) $sol['USUARIO_ID'] === (int) $u['id'] || GasSesion::esAdmin($u)) {
+            return true;
+        }
+        if ((int) GasDb::scalar('SELECT COUNT(*) FROM T_GAS_SOLICITUD_EVENTOS WHERE SOLICITUD_ID = ' . (int) $sol['ID'] . ' AND USUARIO_ID = ' . (int) $u['id']) > 0) {
             return true;
         }
         $pasos = isset($sol['pasos']) ? $sol['pasos'] : GasDb::all(
@@ -269,8 +285,21 @@ class GasSolicitudModel
     }
 
     /**
+     * Solicitudes en las que participó el usuario: las que creó, aquellas en las que ejecutó un paso
+     * o las que devolvió para corrección. Es el alcance del historial para quien no es administrador.
+     */
+    public static function condicionParticipo($uid)
+    {
+        $uid = (int) $uid;
+        return "(s.USUARIO_ID = $uid"
+             . " OR EXISTS (SELECT 1 FROM T_GAS_SOLICITUD_PASOS px WHERE px.SOLICITUD_ID = s.ID AND px.EJECUTADO_POR = $uid)"
+             . " OR EXISTS (SELECT 1 FROM T_GAS_SOLICITUD_EVENTOS ex WHERE ex.SOLICITUD_ID = s.ID AND ex.USUARIO_ID = $uid))";
+    }
+
+    /**
      * Listado paginado.
-     * $vista: 'pendientes' (me toca actuar) | 'mias' | 'historial' (administradores; filtra por fechas)
+     * $vista: 'pendientes' (me toca actuar) | 'mias' | 'historial' (filtra por fechas: los administradores
+     *         ven todas; los demás, las que solicitaron o en las que intervinieron)
      * $f: filtros de self::filtros() + pagina, porPagina
      * Devuelve array(filas, total, pagina, paginas, porPagina).
      */
@@ -293,9 +322,13 @@ class GasSolicitudModel
                      . (GasSesion::esAdmin($u) ? " OR (ps.ACCION IN ('AUTORIZAR_COTIZACION','APROBAR') AND s.USUARIO_ID <> $uid)" : '') . ')';
                 break;
             case 'historial':
+                if (!GasSesion::esAdmin($u)) {
+                    $w[] = self::condicionParticipo($uid);
+                }
+                break;
             case 'todas':
                 if (!GasSesion::esAdmin($u)) {
-                    throw new GasError('No tienes permiso para ver el historial.');
+                    throw new GasError('No tienes permiso para ver todas las solicitudes.');
                 }
                 break;
             default: // mias
@@ -344,7 +377,7 @@ class GasSolicitudModel
                     SUM(CASE WHEN s.ESTADO = 'EN_CURSO' THEN 1 ELSE 0 END) AS EN_CURSO,
                     SUM(CASE WHEN s.ESTADO = 'EN_CURSO' AND ps.ACCION IN (" . self::ACC_APROBAR . ") THEN 1 ELSE 0 END) AS POR_APROBAR,
                     SUM(CASE WHEN s.ESTADO = 'EN_CURSO' AND ps.ACCION = 'CONTABILIZAR' THEN 1 ELSE 0 END) AS CONTABILIDAD,
-                    SUM(CASE WHEN s.ESTADO = 'EN_CURSO' AND ps.ACCION = 'PAGAR' THEN 1 ELSE 0 END) AS TESORERIA,
+                    SUM(CASE WHEN s.ESTADO = 'EN_CURSO' AND ps.ACCION IN ('PAGAR','PAGAR_SALDO') THEN 1 ELSE 0 END) AS TESORERIA,
                     SUM(CASE WHEN s.ESTADO = 'FINALIZADA' THEN 1 ELSE 0 END) AS FINALIZADAS,
                     SUM(CASE WHEN s.ESTADO IN ('RECHAZADA', 'CANCELADA') THEN 1 ELSE 0 END) AS CERRADAS
                FROM T_GAS_SOLICITUDES s
@@ -426,10 +459,16 @@ class GasSolicitudModel
         );
     }
 
-    /** Filas del historial para descargar en Excel (máx. 20.000), con los mismos filtros del listado. */
-    public static function exportar($f)
+    /**
+     * Filas del historial para descargar en Excel (máx. 20.000), con los mismos filtros del listado.
+     * Quien no es administrador solo descarga las solicitudes en las que participó.
+     */
+    public static function exportar($f, $u)
     {
         $w     = self::filtros($f);
+        if (!GasSesion::esAdmin($u)) {
+            $w[] = self::condicionParticipo($u['id']);
+        }
         $where = $w ? 'WHERE ' . implode(' AND ', $w) : '';
         return GasDb::all(
             "SELECT TOP 20000 s.CODIGO, s.TIPO, fl.NOMBRE AS FLUJO, s.ESTADO, ps.NOMBRE AS PASO_ACTUAL,
@@ -438,12 +477,18 @@ class GasSolicitudModel
                     LTRIM(RTRIM(s.ORGANIZACION_VENTA)) AS ORGANIZACION, LTRIM(RTRIM(s.OFICINA_VENTAS)) AS OFICINA,
                     s.PROCESO, s.DESCRIPCION, s.TERCERO_NIT, s.TERCERO_NOMBRE, s.CARGO, s.CENTRO_COSTOS,
                     s.TIPO_ANTICIPO, s.VALOR_ANTICIPO, s.VALOR_TOTAL, s.VALOR_LEGALIZADO, s.RETEFUENTE_LEGALIZACION, s.SALDO_LEGALIZACION, s.NUM_PRELIMINAR,
-                    CASE s.FONDO WHEN 'ROMA' THEN 'Roma' WHEN 'FONDO' THEN 'Fondo ' + ISNULL(s.FONDO_NUMERO, '') WHEN 'NOTA' THEN 'Nota ' + ISNULL(s.FONDO_NUMERO, '')
-                         WHEN 'TARJETA' THEN 'Tarjeta de crédito ' + ISNULL(s.FONDO_NUMERO, '')
+                    CASE s.FONDO WHEN 'ROMA' THEN (CASE LTRIM(RTRIM(s.ORGANIZACION_VENTA)) WHEN '1000' THEN 'MULTIDROGAS' ELSE 'Roma' END) WHEN 'FONDO' THEN 'Fondo ' + ISNULL(s.FONDO_NUMERO, '') WHEN 'NOTA' THEN 'Nota ' + ISNULL(s.FONDO_NUMERO, '')
+                         WHEN 'TARJETA' THEN 'Tarjeta ****' + ISNULL(s.TARJETA_ULTIMOS4, '')
                          WHEN 'FONDO_ROMA' THEN 'Fondo Roma' WHEN 'FONDO_PROVEEDORES' THEN 'Fondo proveedores' ELSE '' END AS FONDO,
+                    s.TARJETA_TITULAR, s.TARJETA_BANCO,
+                    CASE s.REQUIERE_SOPORTE_PAGO WHEN 1 THEN 'Sí' WHEN 0 THEN 'No' ELSE '' END AS REQUIERE_SOPORTE_PAGO,
+                    STUFF((SELECT '; ' + CASE c.ETAPA WHEN 'ANTICIPO' THEN 'Anticipo ' ELSE '' END + LTRIM(RTRIM(c.CENTRO_COSTO)) + ': ' + CONVERT(varchar(30), c.VALOR)
+                             FROM T_GAS_CENTROS_SOLICITUD c WHERE c.SOLICITUD_ID = s.ID
+                              ORDER BY c.ID FOR XML PATH('')), 1, 2, '') AS CENTROS_REPARTO,
                     CONVERT(varchar(10), s.FECHA_FACTURA, 120) AS FECHA_FACTURA,
                     s.NUM_CONTABILIZACION, s.NUM_COMPENSACION, s.NUM_COMPROBANTE_ZP,
                     CONVERT(varchar(10), s.FECHA_PAGO, 120) AS FECHA_PAGO,
+                    s.NUM_COMPROBANTE_SALDO, CONVERT(varchar(10), s.FECHA_PAGO_SALDO, 120) AS FECHA_PAGO_SALDO,
                     CONVERT(varchar(19), s.FECHA_CREACION, 120) AS FECHA_CREACION,
                     CONVERT(varchar(19), s.FECHA_FIN, 120) AS FECHA_FIN, s.MOTIVO_CIERRE
                " . self::FROM_LISTA . " $where

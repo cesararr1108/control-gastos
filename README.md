@@ -18,19 +18,24 @@ views/gastos/                  index (bandeja, tarjetas, historial + Excel), sol
 lib/js/gastos/                 gastos.js (núcleo), pasos.js (formularios), bandeja/solicitud/dashboard/flujos.js, push.js
 uploads/gastos/                Archivos locales (solo si GasConfig::FTP_ACTIVO = false, y los anteriores al FTP)
 tests/logica.php               Pruebas sin base de datos
+tests/motor.php                Flujos completos con una base de datos simulada
 ```
 
 ## Instalación
 
 1. **Copia** las carpetas al proyecto respetando las rutas (`models/`, `controllers/`, `views/`, `lib/js/`, `uploads/`).
    `lib/js/servicios.js` es el que ya tienes: las vistas lo cargan desde `../../lib/js/servicios.js`.
-2. **Base de datos:** ejecuta `database/gastos.sql` en SQL Server (es re-ejecutable). En una instalación existente
-   ejecuta además `database/migracion_ftp_tarjeta_push.sql` (soporte por fila del F-FR-024 y rutas del FTP).
+2. **Base de datos:** ejecuta `database/gastos.sql` en SQL Server (es re-ejecutable). Si ya tenías el módulo instalado,
+   ejecuta además `database/migracion_ajustes_nov.sql` (tarjeta, reparto por centros de costo, soporte por ítem de la legalización, devolución del saldo al
+   empleado y el paso «Devolver saldo al empleado» en los flujos de anticipo).
+   Si vienes de una versión con FTP/push, ejecuta además `database/migracion_ftp_tarjeta_push.sql`.
 3. **Conexión:** `GasDb` usa la función que ya tienes: `conectar()` de `models/funciones.php` (se configura en
    `GasConfig::$FUNCIONES_CONEXION` y `GasConfig::ARCHIVO_CONEXION`). Si devuelve el enlace de `mssql_connect`, se usa;
    si no devuelve nada, se usa la última conexión abierta.
 4. **Configuración** en `models/gastos/GasConfig.php`:
-   - `$ROLES_ADMIN`: IDs de `T_ROLES` con permisos de administrador (flujos, historial, dashboard).
+   - `$ROLES_ADMIN`: IDs de `T_ROLES` con permisos de administrador (flujos, historial completo, dashboard).
+   - `$NOMBRE_EMPRESA`: nombre de la opción por defecto de «¿De dónde sale el pago?» por organización (1000: MULTIDROGAS; 2000: Roma).
+   - `$FORMATOS_VIATICOS`: códigos de los formatos de viáticos por organización (1000: F-FR-0137 / F-FR-0138; 2000: F-FR-023 / F-FR-024).
    - `$ROLES_ADMIN_TITULOS`: títulos de rol con los mismos permisos (por defecto `GERENCIA ADMINISTRATIVA`).
    - `$TEMAS`: color de la interfaz por organización (`1000` amarillo suave, `2000` verde azulado).
    - `DB_LATIN1`: `true` si la conexión trabaja en Latin1/cp1252 (lo normal con `Modern_Spanish_CI_AS`).
@@ -53,7 +58,7 @@ tests/logica.php               Pruebas sin base de datos
 8. **Flujos:** entra a `views/gastos/flujos.php` y asigna el rol responsable de cada paso (por flujo y organización).
    Hasta que cada paso de rol tenga responsable no se podrán crear solicitudes con ese flujo.
 
-Las vistas cargan Tailwind, jQuery y SweetAlert2 desde CDN; la descarga a Excel carga SheetJS (`xlsx`) desde jsDelivr al pulsar el botón. Si tu red no tiene internet, descárgalos y
+Las vistas cargan Tailwind, jQuery, SweetAlert2 y Select2 desde CDN; la descarga a Excel carga SheetJS (`xlsx`) desde jsDelivr al pulsar el botón. Si tu red no tiene internet, descárgalos y
 cambia las etiquetas `<script>` en `views/gastos/_cabecera.php`.
 
 ## Seguridad

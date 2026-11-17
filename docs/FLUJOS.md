@@ -89,16 +89,32 @@ flowchart TD
     D -- Rechaza --> X
     D -- Aprueba --> E
     E["5. Contabilidad<br/>Contabiliza"] --> F
-    F["6. Tesorería<br/>Paga + comprobante ZP"] --> Z([Finalizada])
+    F["6. Tesorería<br/>Paga + comprobante ZP"] --> G
+    G{"¿La legalización de viáticos dejó<br/>saldo a favor del empleado?"}
+    G -- No --> Z([Finalizada])
+    G -- Sí --> H["7. Tesorería<br/>Devuelve el saldo al empleado<br/>(comprobante, fecha y soporte)"] --> Z
 ```
 
+- **Códigos de los formatos de viáticos** según la organización de la solicitud (`GasConfig::$FORMATOS_VIATICOS`):
+
+  | Organización | Solicitud de anticipo de viáticos | Legalización de solicitud de anticipo de viáticos |
+  |---|---|---|
+  | 2000 (y las que no estén configuradas) | **F-FR-023** | **F-FR-024** |
+  | 1000 | **F-FR-0137** | **F-FR-0138** |
+
+- **Soporte de pago:** al solicitar el anticipo (y en toda solicitud) se indica **si requiere soporte de pago**. Tesorería solo ve el apartado para subirlo, y es obligatorio, si se respondió «Sí».
+- **Devolución del saldo al empleado (paso 7, `PAGAR_SALDO`, condición `SALDO_EMPLEADO`):** si la legalización de viáticos deja **saldo a favor del empleado**, después del cruce (compensación) de Contabilidad la solicitud pasa a Tesorería, que evidencia la devolución: número de comprobante, fecha y soporte de la transferencia (obligatorio). Solo entonces finaliza. Si no hay saldo a favor del empleado, el paso se omite y la solicitud finaliza tras el cruce.
+
 - **Por factura:** el solicitante indica el **valor** del anticipo. Después debe montar el preliminar (pasos 3 y 4, condición `ANTICIPO_FACTURA`).
-- **Por viáticos:** se diligencia el **formato F-FR-023 (solicitud de viáticos)**, que se abre en un **modal** con el diseño del formato impreso:
+- **Por viáticos:** se diligencia el **formato de solicitud de anticipo de viáticos (F-FR-023 / F-FR-0137)**, que se abre en un **modal** con el diseño del formato impreso:
   - fecha y dependencia;
   - datos de quien solicita (prellenados con los del usuario);
   - motivo de la solicitud y fechas de salida y de regreso;
   - valor presupuestado por concepto y total solicitado;
-  - autorización de descuento (art. 150 y 151 CST).
+  - autorización de descuento (art. 150 y 151 CST);
+  - **firma del solicitante**: el botón **«Imprimir formato»** imprime el formato con lo diligenciado y la línea de firma.
+
+  El solicitante debe adjuntar, además, **el formato impreso y firmado** y **el finiquito** (PDF o imagen; los dos son obligatorios). Si la solicitud se le devuelve para corrección, no tiene que volver a subirlos.
 
   Validaciones:
   - la salida no puede ser anterior a hoy y el regreso no puede ser anterior a la salida;
@@ -107,10 +123,11 @@ flowchart TD
   - la autorización es obligatoria.
 
   El total se recalcula en el servidor.
-- **Legalización (viáticos):** en el paso del preliminar, en lugar de la factura y el número de preliminar se diligencia el **formato F-FR-024**, también en un modal con el diseño del formato:
+- **Legalización (viáticos):** en el paso del preliminar, en lugar de la factura y el número de preliminar se diligencia el **formato de legalización (F-FR-024 / F-FR-0138)**, también en un modal con el diseño del formato:
   - filas con fecha, centro de costo, doc y ciudad y detalles;
   - un valor en una o más columnas (Transp, Bus/taxis, Hotel, Aliment, Atención, Gasolina, Servicios, Otros) y el total diario de la fila;
-  - todos los soportes, incluido el comprobante de reintegro si lo hay, se suben en **un solo PDF**.
+  - una columna **Soporte** por ítem: cada gasto lleva su propio soporte (factura o recibo, PDF o imagen), obligatorio. Al corregir una devolución se conserva el soporte anterior si no se cambia;
+  - si el saldo es a favor de la empresa, el comprobante de la transferencia se adjunta aparte.
 
   El sistema calcula:
   - **retefuente descontada:** 2,5 % de cada valor de hotel o alimentación superior a $110.000;
@@ -125,10 +142,16 @@ flowchart TD
 
   Solo el solicitante diligencia estos formatos. Gerencia administrativa y los administradores los abren con **«Ver formato»** en solo lectura y, si no aprueban, deben dejar la observación.
 - **Topes de viáticos por nivel:** el nivel del solicitante sale de `T_ROLES_GASTOS_INFO` (1 gerentes de proceso, 2 coordinadores, 3 auxiliares). Los valores (desayuno, almuerzo, cena y tarifa única de hotel) están en `T_GAS_TOPES_VIATICOS`, por año. Los topes **advierten, no bloquean**:
-  - en el F-FR-023 se muestra la tabla del nivel y se avisa si la alimentación supera *días × tope diario*; si se presupuesta hospedaje, se recuerda que la empresa paga directamente los hoteles y se avisa si supera *noches × tarifa única*;
-  - en el F-FR-024 se avisa por cada día en que la alimentación supera el tope diario y por cada hotel sobre la tarifa por noche;
+  - en el formato de solicitud se muestra la tabla del nivel y se avisa si la alimentación supera *días × tope diario*; si se presupuesta hospedaje, se recuerda que la empresa paga directamente los hoteles y se avisa si supera *noches × tarifa única*;
+  - en el de legalización se avisa por cada día en que la alimentación supera el tope diario y por cada hotel sobre la tarifa por noche;
   - Gerencia ve los mismos avisos en el detalle para aprobar o devolver.
-- **Preliminar con factura:** además de número, fecha, valor y factura en PDF, se indica si **el pago sale de un fondo** y de cuál (**Fondo Roma** o **Fondo proveedores**). Tesorería lo ve al pagar.
+- **Anticipo por factura:** el valor del anticipo se reparte entre uno o más **centros de costo** (la suma = valor del anticipo).
+- **Cargo** en el formato de solicitud de viáticos: es el **nombre del rol** del solicitante (no se edita).
+- **Legalización con factura:** además del número de preliminar (**máximo 10 caracteres**), la **fecha de factura**, el valor y la factura en PDF, se indica:
+  - **de dónde sale el pago**: la empresa por defecto (**Roma** en la org. 2000, **MULTIDROGAS** en la 1000; `GasConfig::$NOMBRE_EMPRESA`), **Fondo** o **Nota** (con su número) o **Tarjeta** (con los **últimos 4 dígitos**, el **titular** y el **banco**). Tesorería lo ve al pagar;
+  - **centros de costo**: el valor de la factura se reparte entre uno o más centros (botón **«+ Agregar centro de costo»**); la suma debe ser igual al valor de la factura. Se guarda en `T_GAS_CENTROS_SOLICITUD` (`ETAPA` = `ANTICIPO` o `LEGALIZACION`).
+- Los selects de **centro de costo** usan **Select2** (con buscador).
+- Al revisar una solicitud, cada adjunto lleva una **etiqueta** que dice qué soporte es (Factura, Contrato, Finiquito, «Soporte del gasto: 14/11/2026 · Hotel Cali»…).
 
 Los valores (tope y tasa de retefuente, días de plazo) se configuran en `GasConfig`.
 
@@ -136,7 +159,7 @@ Los valores (tope y tasa de retefuente, días de plazo) se configuran en `GasCon
 
 ```mermaid
 flowchart TD
-    A["1. Solicitante<br/>Monta el preliminar de la factura<br/>(nº, valor, tercero, soporte)"] --> B
+    A["1. Solicitante<br/>Legaliza la factura<br/>(¿soporte de pago?, nº, fecha y valor,<br/>centros de costo, tercero)"] --> B
     B{"2. GA<br/>Aprueba preliminar"}
     B -- Rechaza --> X([Rechazada])
     B -- Aprueba --> C
@@ -166,22 +189,34 @@ Reglas:
 |---|---|---|
 | `SUBIR_COTIZACIONES` | Solicitante | 3 PDF, proceso, ¿requiere soporte de pago? |
 | `AUTORIZAR_COTIZACION` | Rol (o cualquier administrador, salvo el solicitante) | Cotización elegida, o devolución / rechazo; el comentario es opcional |
-| `DECISION_ANTICIPO` | Solicitante | ¿Anticipo? (valor) o **Legalizar**: el preliminar, la factura y, si hay, el contrato (deja hecho el paso «Legalización»); tercero con centro de costos (select de `T_CENTROS_COSTOS`) |
-| `SOLICITAR_ANTICIPO` | Solicitante | Tipo (factura/viáticos), valor o formulario de viaje, tercero |
-| `MONTAR_PRELIMINAR` («Legalización») | Solicitante | Nº de preliminar, fecha y valor de la factura, de dónde sale el pago (**Roma** por defecto, **Fondo** o **Nota** con su número), tercero, factura PDF, contrato u otro documento (opcional), soporte de pago. En viáticos: F-FR-024 + PDF de soportes + comprobante de la transferencia si el saldo es a favor de la empresa |
+| `DECISION_ANTICIPO` | Solicitante | ¿Anticipo? (valor + tercero con centro de costos, select de `T_CENTROS_COSTOS`) o **Legalizar**: el preliminar, la factura, el reparto por centros de costo y, si hay, el contrato (deja hecho el paso «Legalización») |
+| `SOLICITAR_ANTICIPO` | Solicitante | Tipo (factura/viáticos), ¿requiere soporte de pago?, valor o formato de solicitud de anticipo de viáticos (F-FR-023 / F-FR-0137) con el formato impreso y firmado y el finiquito (obligatorios), tercero |
+| `MONTAR_PRELIMINAR` («Legalización») | Solicitante | ¿Requiere soporte de pago? (si no se preguntó antes), nº de preliminar, fecha y valor de la factura, reparto por **centros de costo** (uno o más, la suma = valor de la factura), de dónde sale el pago (**Roma** por defecto, **Fondo** o **Nota** con su número, **Tarjeta** con últimos 4 dígitos, titular y banco), tercero, factura PDF, contrato u otro documento (opcional). En viáticos: F-FR-024 / F-FR-0138 + PDF de soportes + comprobante de la transferencia si el saldo es a favor de la empresa |
 | `APROBAR` | Rol (o cualquier administrador, salvo el solicitante) | Aprobar, devolver o rechazar; el comentario es opcional (sirve para anticipos y legalizaciones) |
-| `CONTABILIZAR` | Rol | Nº de contabilización (empieza por 19, máx. 10 dígitos). Si la solicitud ya tiene número, el paso es la **compensación**: el nº de compensación viene por defecto con el de contabilización. Soporte opcional: archivo o pantallazo pegado (Ctrl+V) |
-| `PAGAR` | Rol | Nº comprobante ZP, fecha de pago, comprobante (PDF o imagen; se puede pegar un pantallazo con Ctrl+V) |
+| `CONTABILIZAR` | Rol | Nº de contabilización (empieza por **19 o 17**, máx. 10 dígitos). Si la solicitud ya tiene número, el paso es la **compensación**: el nº de compensación viene por defecto con el de contabilización. Soporte opcional: archivo o pantallazo pegado (Ctrl+V) |
+| `PAGAR` | Rol | Nº comprobante ZP, fecha de pago y, **solo si el solicitante indicó que requiere soporte de pago**, el soporte (PDF o imagen; se puede pegar un pantallazo con Ctrl+V) |
+| `PAGAR_SALDO` («Devolver saldo al empleado») | Rol (Tesorería) | Solo flujos de anticipo, con la condición `SALDO_EMPLEADO`, después de la compensación: nº del comprobante, fecha y soporte de la devolución al empleado (obligatorio) |
 
 ### Condiciones disponibles
 
-`SIEMPRE`, `ANTICIPO_SI`, `ANTICIPO_NO`, `ANTICIPO_FACTURA`, `ANTICIPO_VIATICOS`, `ANTICIPO_COTIZACION`.
+`SIEMPRE`, `ANTICIPO_SI`, `ANTICIPO_NO`, `ANTICIPO_FACTURA`, `ANTICIPO_VIATICOS`, `ANTICIPO_COTIZACION`,
+`SALDO_EMPLEADO` (la legalización de viáticos dejó saldo a favor del empleado).
 
 Para agregar una **acción nueva** hay que sumar su entrada en `GasCatalogo::acciones()`, un manejador
 `hNombreAccion()` en `GasMotor` y su formulario en `lib/js/gastos/pasos.js` (`Pasos.FORMS`).
-`php tests/logica.php` verifica que cada acción del catálogo tenga manejador.
+`php tests/logica.php` verifica que cada acción del catálogo tenga manejador; `php tests/motor.php` recorre flujos
+completos con una base de datos simulada (anticipo de viáticos con y sin saldo a favor del empleado, factura con tarjeta y
+varios centros de costo, cotización que legaliza directo).
 
-## 6. Supuestos que conviene confirmar
+## 6. Historial
+
+La pestaña **Historial** (con su descarga a Excel) está disponible para todos los roles:
+
+- los **administradores** ven todas las solicitudes;
+- los **demás roles** ven las que **solicitaron** y aquellas en las que **intervinieron** (ejecutaron un paso: aprobaron,
+  contabilizaron, pagaron… o la devolvieron para corrección).
+
+## 7. Supuestos que conviene confirmar
 
 - **Formulario de gastos de viaje:** las líneas son *concepto / descripción / cantidad / valor unitario*
   con los conceptos de `GasCatalogo::conceptosViaticos()`. Ajustar si el formato oficial pide otros campos.
@@ -189,4 +224,5 @@ Para agregar una **acción nueva** hay que sumar su entrada en `GasCatalogo::acc
   preliminar y todo se contabiliza y paga al final (como se describió). Si tesorería debe pagar el
   anticipo antes, se agrega un paso `PAGAR` con condición `ANTICIPO_SI` desde **Flujos**.
 - **Rechazo:** cierra la solicitud. Si se prefiere "devolver al solicitante para corregir", es un cambio puntual en `GasMotor::ejecutar`.
-- **Soporte de pago:** se exige al montar el preliminar cuando se marcó *requiere soporte* en la cotización.
+- **Soporte de pago:** toda solicitud indica si lo requiere (en el primer paso; en el flujo de factura, en la legalización).
+  Lo sube **Tesorería al pagar**, y solo si se respondió «Sí». Las solicitudes antiguas sin respuesta lo muestran como opcional.

@@ -76,9 +76,11 @@ class GasListasModel
     /** Datos del usuario de la sesión para prellenar "datos de quien solicita" (F-FR-023). */
     public static function usuario($id)
     {
-        return GasDb::row("SELECT LTRIM(RTRIM(NOMBRES)) + ' ' + LTRIM(RTRIM(APELLIDOS)) AS NOMBRE, LTRIM(RTRIM(IDENTIFICACION)) AS IDENTIFICACION,
-                                  LTRIM(RTRIM(CELULAR)) AS CELULAR, LTRIM(RTRIM(EMAIL)) AS EMAIL, LTRIM(RTRIM(EXT)) AS EXT
-                             FROM T_USUARIOS WHERE ID = " . (int) $id);
+        // ROL: nombre del rol del usuario; es el «Cargo» del formato de solicitud de anticipo de viáticos.
+        return GasDb::row("SELECT LTRIM(RTRIM(u.NOMBRES)) + ' ' + LTRIM(RTRIM(u.APELLIDOS)) AS NOMBRE, LTRIM(RTRIM(u.IDENTIFICACION)) AS IDENTIFICACION,
+                                  LTRIM(RTRIM(u.CELULAR)) AS CELULAR, LTRIM(RTRIM(u.EMAIL)) AS EMAIL, LTRIM(RTRIM(u.EXT)) AS EXT,
+                                  LTRIM(RTRIM(r.TITULO)) AS ROL
+                             FROM T_USUARIOS u LEFT JOIN T_ROLES r ON r.ID = u.ROLES_ID WHERE u.ID = " . (int) $id);
     }
 
     /**

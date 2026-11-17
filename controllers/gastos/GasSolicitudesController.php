@@ -17,7 +17,7 @@ class GasSolicitudesController
         return array('id' => $id);
     }
 
-    /** Listado paginado. vista: pendientes | mias | participadas | todas. */
+    /** Listado paginado. vista: pendientes | mias | historial. */
     public static function listar($u, $in, $files)
     {
         $vista = isset($in['vista']) ? $in['vista'] : 'mias';
@@ -77,10 +77,10 @@ class GasSolicitudesController
         return GasSolicitudModel::dashboard($in);
     }
 
-    /** Historial para Excel (solo administradores; ver api.php). */
+    /** Historial para Excel (los administradores, todo; los demás, donde participaron). */
     public static function exportar($u, $in, $files)
     {
-        return GasSolicitudModel::exportar($in);
+        return GasSolicitudModel::exportar($in, $u);
     }
 
     /** Solo el número de pendientes (insignia del menú). */

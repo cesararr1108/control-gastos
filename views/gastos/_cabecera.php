@@ -40,9 +40,24 @@ function gasMenuLink($href, $texto, $clave, $activo)
   <script>window.GASTOS_COLOR = '<?php echo $GAS_PALETA ? $GAS_PALETA['600'] : '#4f46e5'; ?>';</script>
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <!-- Select2: buscador en los selects de centros de costo -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css">
   <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
-  <style>.select2-container .select2-selection--single{height:2.5rem;border-color:#cbd5e1;border-radius:.5rem}.select2-container--default .select2-selection--single .select2-selection__rendered{line-height:2.4rem;padding-left:.75rem}.select2-container--default .select2-selection--single .select2-selection__arrow{height:2.4rem}</style>
+  <style>
+    /* Select2 con el mismo aspecto de los demás campos */
+    .select2-container .select2-selection--single { height: 2.375rem; border-color: #cbd5e1; border-radius: .5rem; }
+    .select2-container .select2-selection--single .select2-selection__rendered { line-height: 2.25rem; padding-left: .75rem; font-size: .875rem; color: #1e293b; }
+    .select2-container .select2-selection--single .select2-selection__arrow { height: 2.25rem; }
+    .select2-container--default.select2-container--focus .select2-selection--single,
+    .select2-container--default.select2-container--open .select2-selection--single { border-color: <?php echo $GAS_PALETA ? $GAS_PALETA['500'] : '#6366f1'; ?>; }
+    .select2-dropdown { border-color: #cbd5e1; font-size: .875rem; z-index: 60; }
+    .select2-container--default .select2-results__option--highlighted.select2-results__option--selectable { background: <?php echo $GAS_PALETA ? $GAS_PALETA['600'] : '#4f46e5'; ?>; }
+    .select2-container--disabled .select2-selection--single { background: #f1f5f9; }
+    /* En el formato de legalización (celdas de tabla) el select va más compacto */
+    td .select2-container .select2-selection--single { height: 1.875rem; border-radius: .25rem; }
+    td .select2-container .select2-selection--single .select2-selection__rendered { line-height: 1.75rem; padding-left: .5rem; }
+    td .select2-container .select2-selection--single .select2-selection__arrow { height: 1.75rem; }
+  </style>
 </head>
 <body class="min-h-screen bg-slate-50 text-slate-800 antialiased">
   <header class="border-b border-slate-200 bg-white">

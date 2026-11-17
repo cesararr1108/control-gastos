@@ -47,7 +47,43 @@ class GasConfig
     const RETEFUENTE_TASA = 0.025;
     public static $RETEFUENTE_TIPOS = array('HOTEL', 'ALIMENT');
 
-    /** Dias que tiene el colaborador para legalizar despues del viaje (clausula del F-FR-023). */
+    /**
+     * Códigos de los formatos de viáticos por organización de venta (ses_NumOrg):
+     *  - solicitud:    solicitud de anticipo de viáticos
+     *  - legalizacion: legalización de la solicitud de anticipo de viáticos
+     * Las organizaciones que no estén aquí usan los de la 2000.
+     */
+    public static $FORMATOS_VIATICOS = array(
+        '1000' => array('solicitud' => 'F-FR-0137', 'legalizacion' => 'F-FR-0138'),
+        '2000' => array('solicitud' => 'F-FR-023',  'legalizacion' => 'F-FR-024'),
+    );
+
+    /** Códigos de los formatos de viáticos de una organización (ver $FORMATOS_VIATICOS). */
+    public static function formatosViaticos($org)
+    {
+        $org = trim((string) $org);
+        return isset(self::$FORMATOS_VIATICOS[$org]) ? self::$FORMATOS_VIATICOS[$org] : self::$FORMATOS_VIATICOS['2000'];
+    }
+
+    /**
+     * Nombre con el que aparece la opción por defecto de «¿De dónde sale el pago?» según la organización
+     * de la solicitud. Las organizaciones que no estén aquí muestran «Roma».
+     */
+    public static $NOMBRE_EMPRESA = array(
+        '1000' => 'MULTIDROGAS',
+        '2000' => 'Roma',
+    );
+
+    public static function nombreEmpresa($org)
+    {
+        $org = trim((string) $org);
+        return isset(self::$NOMBRE_EMPRESA[$org]) ? self::$NOMBRE_EMPRESA[$org] : 'Roma';
+    }
+
+    /** Máximo de caracteres del número de preliminar. */
+    const MAX_PRELIMINAR = 10;
+
+    /** Dias que tiene el colaborador para legalizar despues del viaje (clausula del formato de solicitud). */
     const DIAS_LEGALIZACION = 30;
 
     /** Tamano maximo por PDF, en MB. */
