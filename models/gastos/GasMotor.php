@@ -405,23 +405,15 @@ class GasMotor
 
         // La factura en PDF es obligatoria. El soporte de pago lo sube Tesorería al pagar (si se pidió);
         // aquí el solicitante puede adjuntar, si quiere, un soporte del proveedor.
+        // Preliminar y contrato (3.º y 4.º adjunto, opcionales): PDF, imagen, Excel o Word.
         $archivos = array(
-            'factura_pdf'    => array('FACTURA', 'Factura (PDF)', true),
-            'soporte_pago'   => array('SOPORTE_PAGO', 'Soporte de pago', false),
-            'preliminar_pdf' => array('PRELIMINAR', 'Preliminar (PDF)', false),
-            'contrato_pdf'   => array('CONTRATO', 'Contrato u otro soporte (PDF)', false), // para que GA contraste la factura con lo pactado
+            'factura_pdf'    => array('FACTURA', 'la factura en PDF', true, 'pdf'),
+            'soporte_pago'   => array('SOPORTE_PAGO', 'el soporte de pago', false, 'imagen'),
+            'preliminar_pdf' => array('PRELIMINAR', 'el preliminar', false, 'documento'),
+            'contrato_pdf'   => array('CONTRATO', 'el contrato u otro soporte', false, 'documento'), // para que GA contraste la factura con lo pactado
         );
         foreach ($archivos as $campo => $meta) {
-            $f   = isset($files[$campo]) ? $files[$campo] : null;
-            $hay = $f && isset($f['error']) && $f['error'] !== UPLOAD_ERR_NO_FILE;
-            if (!$hay && $meta[2]) {
-                throw new GasError('Adjunta la factura en PDF.');
-            }
-            if ($hay) {
-                $g = GasArchivos::guardarPdf($f, $meta[1]);
-                self::$rutasNuevas[] = $g['ruta'];
-                self::registrarArchivo($sol['ID'], $paso['ORDEN'], $meta[0], $g, $u);
-            }
+            self::guardarArchivo($sol, $paso, $in, $files, $campo, $meta[0], $meta[1], $meta[3], $meta[2], $u);
         }
         self::guardarCentros($sol['ID'], $centros, 'LEGALIZACION');
         GasDb::query('UPDATE T_GAS_SOLICITUDES SET NUM_PRELIMINAR = ' . GasDb::str($num, 30) . ', VALOR_TOTAL = ' . GasDb::num($valor)
