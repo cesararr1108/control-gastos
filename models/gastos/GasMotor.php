@@ -284,8 +284,8 @@ class GasMotor
             GasDb::query("DELETE FROM T_GAS_CENTROS_SOLICITUD WHERE SOLICITUD_ID = " . (int) $sol['ID'] . " AND ETAPA = 'ANTICIPO'");
             $valor = self::guardarViaticos($sol, $in);
             $cod   = GasConfig::formatosViaticos($sol['ORGANIZACION_VENTA']);
-            self::archivoObligatorio($sol, $paso, $files, 'formato_firmado', 'FORMATO_FIRMADO', 'el formato ' . $cod['solicitud'] . ' impreso y firmado', $u);
-            self::archivoObligatorio($sol, $paso, $files, 'finiquito', 'FINIQUITO', 'el finiquito', $u);
+            self::archivoObligatorio($sol, $paso, $in, $files, 'formato_firmado', 'FORMATO_FIRMADO', 'el formato ' . $cod['solicitud'] . ' impreso y firmado', $u);
+            self::archivoObligatorio($sol, $paso, $in, $files, 'finiquito', 'FINIQUITO', 'el finiquito', $u);
         }
         GasDb::query("UPDATE T_GAS_SOLICITUDES SET REQUIERE_ANTICIPO = 1, TIPO_ANTICIPO = " . GasDb::str($tipo) . ', VALOR_ANTICIPO = ' . GasDb::num($valor)
             . ', PROCESO_ID = ' . (int) $proceso['ID'] . ', PROCESO = ' . GasDb::str($proceso['PROCESO'], 100)
@@ -312,20 +312,17 @@ class GasMotor
      * Adjunto obligatorio (PDF o imagen). Si la solicitud fue devuelta para corrección y ya tiene un
      * archivo de esa categoría, no hace falta subirlo de nuevo (si se sube, queda también el nuevo).
      */
-    private static function archivoObligatorio($sol, $paso, $files, $campo, $categoria, $etiqueta, $u)
+    private static function archivoObligatorio($sol, $paso, $in, $files, $campo, $categoria, $etiqueta, $u)
     {
-        $f   = isset($files[$campo]) ? $files[$campo] : null;
-        $hay = $f && isset($f['error']) && $f['error'] !== UPLOAD_ERR_NO_FILE;
+        // El archivo viene del FTP (ftp[campo]) o subido al servidor; si ya había uno (devolución) no se vuelve a pedir.
+        $hay = !empty($in['ftp'][$campo]['ruta']) || (isset($files[$campo]['error']) && $files[$campo]['error'] !== UPLOAD_ERR_NO_FILE);
         if (!$hay) {
             $previo = (int) GasDb::scalar('SELECT COUNT(*) FROM T_GAS_ARCHIVOS WHERE SOLICITUD_ID = ' . (int) $sol['ID'] . ' AND CATEGORIA = ' . GasDb::str($categoria));
             if ($previo > 0) {
                 return;
             }
-            throw new GasError('Adjunta ' . $etiqueta . ' (PDF o imagen).');
         }
-        $g = GasArchivos::guardarSoporte($f, ucfirst($etiqueta));
-        self::$rutasNuevas[] = $g['ruta'];
-        self::registrarArchivo($sol['ID'], $paso['ORDEN'], $categoria, $g, $u);
+        self::guardarArchivo($sol, $paso, $in, $files, $campo, $categoria, $etiqueta, 'imagen', true, $u);
     }
 
     /**
@@ -502,11 +499,9 @@ class GasMotor
         }
         $req = isset($sol['REQUIERE_SOPORTE_PAGO']) ? $sol['REQUIERE_SOPORTE_PAGO'] : null;
         if ($req !== null && (int) $req === 1) {
-            $g = GasArchivos::guardarSoporte(isset($files['comprobante']) ? $files['comprobante'] : null, 'Soporte de pago'); // PDF o imagen pegada
-            self::$rutasNuevas[] = $g['ruta'];
-            self::registrarArchivo($sol['ID'], $paso['ORDEN'], 'COMPROBANTE', $g, $u);
+            self::guardarArchivo($sol, $paso, $in, $files, 'comprobante', 'COMPROBANTE', 'el soporte de pago', 'imagen', true, $u); // PDF o imagen pegada
         } elseif ($req === null) {
-            self::guardarSoporteOpcional($sol, $paso, $files, 'comprobante', 'COMPROBANTE', 'Soporte de pago', $u);
+            self::guardarArchivo($sol, $paso, $in, $files, 'comprobante', 'COMPROBANTE', 'el soporte de pago', 'imagen', false, $u);
         }
         GasDb::query('UPDATE T_GAS_SOLICITUDES SET NUM_COMPROBANTE_ZP = ' . GasDb::str($zp, 30) . ', FECHA_PAGO = ' . GasDb::fecha($fecha)
             . ' WHERE ID = ' . (int) $sol['ID']);
@@ -529,9 +524,7 @@ class GasMotor
         if (GasDb::fecha($fecha) === 'NULL') {
             throw new GasError('Indica una fecha válida de la devolución.');
         }
-        $g = GasArchivos::guardarSoporte(isset($files['soporte_saldo']) ? $files['soporte_saldo'] : null, 'Soporte de la devolución al empleado');
-        self::$rutasNuevas[] = $g['ruta'];
-        self::registrarArchivo($sol['ID'], $paso['ORDEN'], 'DEVOLUCION_SALDO', $g, $u);
+        self::guardarArchivo($sol, $paso, $in, $files, 'soporte_saldo', 'DEVOLUCION_SALDO', 'el soporte de la devolución al empleado', 'imagen', true, $u);
         GasDb::query('UPDATE T_GAS_SOLICITUDES SET NUM_COMPROBANTE_SALDO = ' . GasDb::str($num, 30) . ', FECHA_PAGO_SALDO = ' . GasDb::fecha($fecha)
             . ' WHERE ID = ' . (int) $sol['ID']);
         return array('decision' => 'COMPLETADO', 'comentario' => self::textoOpcional($in, 'comentario', 500));

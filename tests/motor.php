@@ -325,8 +325,8 @@ nueva('ANTICIPO', '1000', $FLUJO_VIATICOS);
 igual('SOLICITAR_ANTICIPO#1', actual(), 'arranca en la solicitud');
 $sinSoporte = $viaje; unset($sinSoporte['requiere_soporte']);
 igual('Indica si requiere soporte de pago.', paso($SOL, $sinSoporte), 'sin indicar soporte de pago: error');
-igual('Adjunta el formato F-FR-0137 impreso y firmado (PDF o imagen).', paso($SOL, $viaje), 'sin formato firmado: error (código de la org. 1000)');
-igual('Adjunta el finiquito (PDF o imagen).', paso($SOL, $viaje, array('formato_firmado' => archivo('firmado.pdf'))), 'sin finiquito: error');
+igual('Adjunta el formato F-FR-0137 impreso y firmado.', paso($SOL, $viaje), 'sin formato firmado: error (código de la org. 1000)');
+igual('Adjunta el finiquito.', paso($SOL, $viaje, array('formato_firmado' => archivo('firmado.pdf'))), 'sin finiquito: error');
 igual(0, count(GasDb::$archivos), 'el error deshace los archivos registrados');
 igual('', paso($SOL, $viaje, array('formato_firmado' => archivo('firmado.pdf'), 'finiquito' => archivo('finiquito.pdf'))), 'con formato firmado y finiquito: pasa');
 igual('0', GasDb::$sol['REQUIERE_SOPORTE_PAGO'], 'guarda «no requiere soporte de pago»');
@@ -348,7 +348,7 @@ igual('', paso($GA, array('decision' => 'APROBAR')), 'GA aprueba la legalizació
 igual('', paso($CONT, array('num_compensacion' => '1712345678')), 'Contabilidad hace el cruce (compensación)');
 igual('PAGAR_SALDO#8', actual(), 'después del cruce sigue Tesorería: devolver saldo al empleado');
 igual('EN_CURSO', GasDb::$sol['ESTADO'], 'la solicitud aún no finaliza');
-igual('Falta el archivo: Soporte de la devolución al empleado.', paso($TES, array('num_comprobante_saldo' => 'TR-9', 'fecha_pago_saldo' => $hoy)), 'devolución sin soporte: error');
+igual('Adjunta el soporte de la devolución al empleado.', paso($TES, array('num_comprobante_saldo' => 'TR-9', 'fecha_pago_saldo' => $hoy)), 'devolución sin soporte: error');
 igual('Este paso no te corresponde.', paso($CONT, array('num_comprobante_saldo' => 'TR-9', 'fecha_pago_saldo' => $hoy), array('soporte_saldo' => archivo('tr.png'))), 'otro rol no puede devolver el saldo');
 igual('', paso($TES, array('num_comprobante_saldo' => 'TR-9', 'fecha_pago_saldo' => $hoy), array('soporte_saldo' => archivo('tr.png'))), 'Tesorería evidencia la devolución');
 igual('FINALIZADA', GasDb::$sol['ESTADO'], 'con la devolución finaliza la solicitud');
@@ -360,7 +360,7 @@ igual(true, contiene(paso($SOL, $viaje), 'F-FR-023'), 'org. 2000 usa el código 
 paso($SOL, array_merge($viaje, array('requiere_soporte' => 'SI')), array('formato_firmado' => archivo('f.pdf'), 'finiquito' => archivo('q.pdf')));
 paso($GA, array('decision' => 'APROBAR'));
 paso($CONT, array('num_contabilizacion' => '1900000001'));
-igual('Falta el archivo: Soporte de pago.', paso($TES, array('num_comprobante_zp' => 'ZP1', 'fecha_pago' => $hoy)), 'requiere soporte de pago: Tesorería debe subirlo');
+igual('Adjunta el soporte de pago.', paso($TES, array('num_comprobante_zp' => 'ZP1', 'fecha_pago' => $hoy)), 'requiere soporte de pago: Tesorería debe subirlo');
 igual('', paso($TES, array('num_comprobante_zp' => 'ZP1', 'fecha_pago' => $hoy), array('comprobante' => archivo('zp.pdf'))), 'Tesorería paga con soporte');
 $legal2 = array('legal' => array(array('fecha' => $hoy, 'detalle' => 'Cali', 'centro_costo' => 'CC100', 'v' => array('TRANSP' => '60000'))));
 igual('Adjunta el comprobante de la transferencia a la empresa (hay saldo a favor de la empresa).', paso($SOL, $legal2, array('legal_soporte_0' => archivo('s.pdf'))), 'saldo a favor de la empresa pide el comprobante del reintegro');
@@ -407,7 +407,7 @@ igual('CC100', GasDb::$sol['CENTRO_COSTOS'], 'el centro principal es el primero 
 igual('1', GasDb::$sol['REQUIERE_SOPORTE_PAGO'], 'guarda «requiere soporte de pago»');
 paso($GA, array('decision' => 'APROBAR'));
 igual('', paso($CONT, array('num_contabilizacion' => '19')), 'contabilización «19»');
-igual('Falta el archivo: Soporte de pago.', paso($TES, array('num_comprobante_zp' => 'ZP2', 'fecha_pago' => $hoy)), 'Tesorería debe subir el soporte (se pidió)');
+igual('Adjunta el soporte de pago.', paso($TES, array('num_comprobante_zp' => 'ZP2', 'fecha_pago' => $hoy)), 'Tesorería debe subir el soporte (se pidió)');
 igual('', paso($TES, array('num_comprobante_zp' => 'ZP2', 'fecha_pago' => $hoy), array('comprobante' => archivo('zp.png'))), 'paga con soporte');
 igual('FINALIZADA', GasDb::$sol['ESTADO'], 'finaliza');
 
