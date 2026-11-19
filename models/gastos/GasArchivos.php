@@ -162,6 +162,10 @@ class GasArchivos
             }
             return null;
         }
+        // Con el FTP activo los soportes SOLO se guardan en el FTP: nunca en el servidor web (uploads/gastos).
+        if (GasConfig::FTP_ACTIVO) {
+            throw new GasError("$Etq no se subió al FTP. Recarga la página (Ctrl+F5) e inténtalo de nuevo; si persiste, avisa a sistemas: no se guardó en ninguna parte.");
+        }
         if ($grupo === 'pdf') {
             return self::guardarPdf($f, $Etq);
         }

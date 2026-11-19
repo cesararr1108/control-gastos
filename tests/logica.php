@@ -107,6 +107,14 @@ igual(false, $ftp('/web/gastos/../x.pdf', 'factura.pdf', 'pdf'), 'FTP: ruta con 
 igual(false, $ftp('/web/gastos/sub/x.pdf', 'factura.pdf', 'pdf'), 'FTP: subcarpeta');
 igual(false, $ftp('/web/gastos/gas_abc.php', 'factura.pdf', 'pdf'), 'FTP: archivo con extensión no permitida');
 igual(false, $ftp('/web/gastos/gas_abc.pdf', 'factura.pdf', 'pdf', 50 * 1024 * 1024), 'FTP: supera el tamaño máximo');
+igual('web/gastos/gas_abc.pdf', GasArchivos::recibir(array('ftp' => array('f' => array('ruta' => '/web/gastos/gas_abc.pdf', 'nombre' => 'a.pdf', 'tamano' => 10))), array(), 'f', 'x', 'pdf', true)['ruta'], 'recibir: toma el archivo del FTP');
+$localFtp = false;
+try {
+    GasArchivos::recibir(array(), array('f' => array('name' => 'a.pdf', 'tmp_name' => '/tmp/x', 'error' => UPLOAD_ERR_OK, 'size' => 10)), 'f', 'x', 'pdf', true);
+} catch (GasError $e) {
+    $localFtp = strpos($e->getMessage(), 'FTP') !== false;
+}
+igual(GasConfig::FTP_ACTIVO, $localFtp, 'con el FTP activo no se guarda nada en el servidor web');
 igual(true, GasArchivos::esFtp('web/gastos/gas_abc.pdf'), 'esFtp con carpeta');
 igual(false, GasArchivos::esFtp('a1b2c3.pdf'), 'archivo local antiguo');
 
